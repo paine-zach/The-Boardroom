@@ -9,7 +9,11 @@ export default async function handler(req, res) {
     }
 
     // 1) Pull filings from HermAI (replace URL with exact HermAI endpoint if needed)
-    const hermRes = await fetch("https://api.hermai.ai/form4?role=CEO", {
+    const hermaiUrl = process.env.HERMAI_FORM4_URL;
+    if (!hermaiUrl) {
+      return res.status(500).json({ error: "Missing HERMAI_FORM4_URL" });
+    }
+const hermRes = await fetch(hermaiUrl, {
       method: "GET",
       headers: {
         Authorization: `Bearer ${hermaiKey}`,
