@@ -1,0 +1,927 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Boardroom — CEO Stock Trades, Made Readable</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --navy:#152441;
+    --navy-deep:#0E1930;
+    --ink:#152441;
+    --ink-soft:#48587A;
+    --paper:#E9EDF5;
+    --card:#FFFFFF;
+    --card-hover:#F5F8FD;
+    --line:#CCD5E6;
+    --line-soft:#DEE5F0;
+    --accent:#D9A441;
+    --accent-ink:#8A6215;
+    --header-fg:#F3F5FA;
+    --header-fg-soft:#AEBBD6;
+    --header-mark:#E8C173;
+    --tab-buy:#2E9E5B;
+    --tab-sell:#C1493B;
+    --tab-award:#C98A2C;
+    --tab-option:#2E86C7;
+    --pos:#1F9254;
+    --neg:#B23B32;
+    --radius:2px;
+    --shadow: 0 1px 0 rgba(21,36,65,0.06);
+  }
+
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{
+    margin:0;
+    background:var(--paper);
+    color:var(--ink);
+    font-family:'IBM Plex Sans', sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  a{color:inherit;}
+
+  /* ============ HEADER ============ */
+  header.site{
+    background:linear-gradient(180deg, var(--navy) 0%, var(--navy-deep) 100%);
+    border-bottom:3px solid var(--accent);
+    position:sticky;
+    top:0;
+    z-index:30;
+  }
+  .header-inner{
+    max-width:1220px;
+    margin:0 auto;
+    padding:16px 24px 16px;
+    display:flex;
+    align-items:flex-end;
+    justify-content:space-between;
+    gap:20px;
+    flex-wrap:wrap;
+  }
+  .brand{display:flex; flex-direction:column; gap:2px;}
+  .brand .mark{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:11px; letter-spacing:0.18em; text-transform:uppercase;
+    color:var(--header-mark); font-weight:600;
+  }
+  .brand h1{
+    font-family:'Fraunces', serif; font-optical-sizing:auto;
+    font-weight:600; font-size:34px; margin:0; letter-spacing:-0.01em;
+    color:var(--header-fg);
+  }
+  .brand .sub{ font-size:13.5px; color:var(--header-fg-soft); max-width:460px; line-height:1.4; }
+
+  .header-right{ display:flex; flex-direction:column; align-items:flex-end; gap:8px; flex:1; min-width:260px; max-width:460px; }
+  .powered-badge{ font-family:'IBM Plex Mono', monospace; font-size:10.5px; letter-spacing:0.07em; text-transform:uppercase; white-space:nowrap; }
+  .powered-badge a{ color:var(--header-mark); text-decoration:none; opacity:0.9; border-bottom:1px solid rgba(232,193,115,0.4); padding-bottom:1px; transition:opacity 0.15s ease; }
+  .powered-badge a:hover{ opacity:1; border-bottom-color:var(--header-mark); }
+  .powered-badge strong{ color:var(--accent); font-weight:600; }
+
+  .search-wrap{ width:100%; display:flex; align-items:center; border:1px solid rgba(255,255,255,0.14); background:rgba(255,255,255,0.06); border-radius:var(--radius); padding:0 4px 0 12px; }
+  .search-wrap:focus-within{ background:var(--card); border-color:var(--card); }
+  .search-wrap svg{ flex:none; opacity:0.6; color:var(--header-fg-soft);}
+  .search-wrap:focus-within svg{ color:var(--ink-soft); opacity:0.55; }
+  .search-wrap input{ flex:1; border:none; background:transparent; padding:11px 8px; font-family:'IBM Plex Sans', sans-serif; font-size:14px; color:var(--header-fg); outline:none; }
+  .search-wrap:focus-within input{ color:var(--ink); }
+  .search-wrap input::placeholder{ color:var(--header-fg-soft); }
+  .search-wrap:focus-within input::placeholder{ color:#8A93A8; }
+
+  /* ============ TOOLBAR ============ */
+  .toolbar{ max-width:1220px; margin:0 auto; padding:14px 24px 0; display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap; }
+  .sort-tabs{ display:flex; gap:2px; font-family:'IBM Plex Mono', monospace; font-size:12.5px; }
+  .sort-tabs button{ border:1px solid var(--line); background:var(--card); color:var(--ink-soft); padding:7px 14px; cursor:pointer; border-radius:var(--radius); letter-spacing:0.03em; text-transform:uppercase; }
+  .sort-tabs button.active{ background:var(--ink); color:var(--paper); border-color:var(--ink); }
+  .result-count{ font-family:'IBM Plex Mono', monospace; font-size:12px; color:var(--ink-soft); letter-spacing:0.02em; }
+
+  .filter-row{ max-width:1220px; margin:0 auto; padding:12px 24px 0; display:flex; flex-wrap:wrap; gap:16px; align-items:center; }
+  .chip-group{ display:flex; flex-wrap:wrap; gap:8px; align-items:center; padding-right:14px; border-right:1px solid var(--line-soft); }
+  .chip-group:last-of-type{ border-right:none; padding-right:0; }
+  .chip-group-label{ font-family:'IBM Plex Mono', monospace; font-size:10px; letter-spacing:0.09em; text-transform:uppercase; color:var(--ink-soft); margin-right:2px; }
+  .chip{ font-family:'IBM Plex Mono', monospace; font-size:11.5px; letter-spacing:0.03em; text-transform:uppercase; border:1px solid var(--line); background:var(--card); color:var(--ink-soft); padding:6px 11px; border-radius:20px; cursor:pointer; display:flex; align-items:center; gap:6px; user-select:none; }
+  .chip .dot{ width:7px; height:7px; border-radius:50%; display:inline-block; }
+  .chip.active{ background:var(--ink); color:var(--paper); border-color:var(--ink); }
+  .chip.clear{ color:var(--accent-ink); border-color:var(--accent); }
+
+  .facet-row{ max-width:1220px; margin:0 auto; padding:10px 24px 0; display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+  .facet-row .facet-label{ font-family:'IBM Plex Mono', monospace; font-size:11px; letter-spacing:0.1em; text-transform:uppercase; color:var(--ink-soft); margin-right:2px; }
+  .facet-row select{
+    font-family:'IBM Plex Mono', monospace; font-size:12px; letter-spacing:0.02em; color:var(--ink);
+    background:var(--card); border:1px solid var(--line); border-radius:var(--radius);
+    padding:6px 28px 6px 10px; cursor:pointer; appearance:none; -webkit-appearance:none;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2348587A' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+    background-repeat:no-repeat; background-position:right 8px center; background-size:13px;
+  }
+  .facet-row select:focus{ outline:none; border-color:var(--navy); }
+  .facet-row select.is-set{ border-color:var(--navy); color:var(--navy); font-weight:600; background-color:#EEF2FA; }
+
+  /* ============ LAYOUT ============ */
+  .layout{ max-width:1220px; margin:0 auto; padding:20px 24px 80px; display:grid; grid-template-columns: 1fr 300px; gap:28px; align-items:start; }
+  @media (max-width: 880px){ .layout{grid-template-columns:1fr;} .sidebar{order:2;} }
+
+  /* ============ FEED / CARDS ============ */
+  .feed{ display:flex; flex-direction:column; gap:14px; }
+  .trade-card{ background:var(--card); border:1px solid var(--line); border-radius:var(--radius); box-shadow:var(--shadow); display:flex; position:relative; overflow:hidden; transition:background 0.15s ease; }
+  .trade-card:hover{ background:var(--card-hover); }
+  .trade-card::before{ content:""; position:absolute; left:0; top:0; bottom:0; width:5px; background:var(--tab-color, var(--tab-option)); }
+
+  .vote-col{ flex:none; width:58px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; padding:14px 6px; border-right:1px solid var(--line-soft); margin-left:5px; }
+  .vote-btn{ width:30px; height:26px; border:1px solid var(--line); background:var(--paper); cursor:pointer; border-radius:3px; display:flex; align-items:center; justify-content:center; color:var(--ink-soft); }
+  .vote-btn svg{ width:13px; height:13px; }
+  .vote-btn.voted{ background:var(--accent); border-color:var(--accent); color:#fff; }
+  .vote-count{ font-family:'IBM Plex Mono', monospace; font-weight:600; font-size:14px; margin:3px 0; }
+
+  .card-body{ flex:1; padding:14px 18px 15px 16px; min-width:0; }
+  .card-top{ display:flex; justify-content:space-between; align-items:flex-start; gap:12px; margin-bottom:6px; }
+  .docket-line{ font-family:'IBM Plex Mono', monospace; font-size:11.5px; color:var(--ink-soft); letter-spacing:0.02em; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .docket-line .ticker{ color:var(--ink); font-weight:700; }
+  .docket-line .type-label{ color:var(--tab-color, var(--tab-option)); font-weight:600; }
+
+  .stamp{ flex:none; font-family:'IBM Plex Mono', monospace; font-size:10px; letter-spacing:0.09em; text-transform:uppercase; border:1.5px solid var(--ink); color:var(--ink); padding:4px 8px; border-radius:3px; transform:rotate(-3deg); white-space:nowrap; opacity:0.85; }
+
+  .case-title{ font-family:'Fraunces', serif; font-weight:500; font-size:19px; line-height:1.28; margin:2px 0 6px; letter-spacing:-0.005em; }
+  .case-meta{ font-size:12.5px; color:var(--ink-soft); margin-bottom:10px; }
+
+  .stat-grid{
+    display:grid; grid-template-columns:repeat(auto-fit, minmax(110px,1fr)); gap:10px;
+    background:var(--paper); border:1px solid var(--line-soft); border-radius:3px; padding:10px 12px; margin-bottom:10px;
+  }
+  .stat{ display:flex; flex-direction:column; gap:2px; }
+  .stat .stat-label{ font-family:'IBM Plex Mono', monospace; font-size:9.5px; letter-spacing:0.08em; text-transform:uppercase; color:var(--ink-soft); }
+  .stat .stat-value{ font-family:'IBM Plex Mono', monospace; font-size:13.5px; font-weight:600; color:var(--ink); }
+  .stat .stat-value.pos{ color:var(--pos); }
+  .stat .stat-value.neg{ color:var(--neg); }
+
+  .badge-row{ display:flex; flex-wrap:wrap; gap:6px; margin-bottom:8px; }
+  .plan-badge{ font-family:'IBM Plex Mono', monospace; font-size:10.5px; letter-spacing:0.03em; text-transform:uppercase; padding:3px 9px; border-radius:12px; border:1px solid var(--line-soft); color:var(--ink-soft); background:var(--paper); }
+  .plan-badge.plan{ color:var(--accent-ink); border-color:#DCC489; background:#F5EBD3; }
+
+  .case-summary{ font-size:14.5px; line-height:1.55; color:#2C3542; margin-bottom:10px; }
+  .tag-row{ display:flex; flex-wrap:wrap; gap:6px; margin-bottom:2px; }
+  .tag{ font-family:'IBM Plex Mono', monospace; font-size:11px; color:var(--ink-soft); background:var(--paper); border:1px solid var(--line-soft); padding:2px 8px; border-radius:12px; }
+  .card-footer{ display:flex; justify-content:space-between; align-items:center; margin-top:10px; padding-top:9px; border-top:1px solid var(--line-soft); }
+  .decision-link{ font-size:12.5px; font-weight:600; text-decoration:none; color:var(--accent-ink); display:flex; align-items:center; gap:4px; background:none; border:none; padding:0; cursor:pointer; font-family:'IBM Plex Sans', sans-serif; }
+  .decision-link:hover{ text-decoration:underline; }
+  .form4-link{
+    font-family:'IBM Plex Mono', monospace; font-size:10.5px; letter-spacing:0.05em; font-weight:600;
+    color:var(--ink-soft); text-decoration:none; border:1px solid var(--line); padding:4px 9px; border-radius:12px;
+  }
+  .form4-link:hover{ color:var(--navy); border-color:var(--navy); }
+
+  .no-results{ text-align:center; padding:60px 20px; color:var(--ink-soft); font-family:'IBM Plex Mono', monospace; font-size:13px; border:1px dashed var(--line); border-radius:var(--radius); background:var(--card); }
+
+  /* ============ SIDEBAR ============ */
+  .sidebar{ display:flex; flex-direction:column; gap:14px; }
+  .side-box{ background:var(--card); border:1px solid var(--line); border-radius:var(--radius); padding:16px 18px; }
+  .side-box h2{ font-family:'IBM Plex Mono', monospace; font-size:11px; letter-spacing:0.12em; text-transform:uppercase; color:var(--accent-ink); margin:0 0 10px; }
+  .side-box p{ font-size:13px; line-height:1.55; color:var(--ink-soft); margin:0 0 8px; }
+  .glossary dt{ font-family:'IBM Plex Mono', monospace; font-size:12px; font-weight:600; color:var(--ink); margin-top:9px; }
+  .glossary dd{ margin:2px 0 0; font-size:12.5px; color:var(--ink-soft); line-height:1.45; }
+  .sample-note{ font-size:12px; color:var(--accent-ink); background:#F1E4C6; border:1px solid #DCC489; padding:9px 11px; border-radius:3px; line-height:1.5; }
+
+  footer.site{ border-top:1px solid var(--line); padding:22px 24px 40px; }
+  footer.site .inner{ max-width:1220px; margin:0 auto; font-size:12px; color:var(--ink-soft); line-height:1.6; }
+
+  /* ============ MODAL ============ */
+  .modal-overlay{
+    position:fixed; inset:0; background:rgba(14,25,48,0.55);
+    display:none; align-items:center; justify-content:center;
+    z-index:100; padding:20px;
+  }
+  .modal-overlay.open{ display:flex; }
+  .modal-panel{
+    background:var(--card); border-radius:4px; width:100%; max-width:660px;
+    max-height:88vh; overflow-y:auto; box-shadow:0 24px 70px rgba(14,25,48,0.4);
+  }
+  .modal-header{
+    padding:18px 22px; display:flex; justify-content:space-between; align-items:flex-start; gap:14px;
+    background:linear-gradient(180deg, var(--navy) 0%, var(--navy-deep) 100%);
+    border-radius:4px 4px 0 0; position:sticky; top:0; z-index:2;
+  }
+  .modal-header .docket-line{ color:var(--header-fg-soft); }
+  .modal-header .docket-line .ticker{ color:var(--header-fg); }
+  .modal-header .modal-title{
+    font-family:'Fraunces', serif; font-weight:600; font-size:20px; color:var(--header-fg);
+    margin:4px 0 0; line-height:1.3;
+  }
+  .modal-close{
+    flex:none; width:28px; height:28px; border-radius:4px; cursor:pointer;
+    background:rgba(255,255,255,0.1); border:1px solid rgba(255,255,255,0.22); color:var(--header-fg);
+    display:flex; align-items:center; justify-content:center; font-size:16px; line-height:1;
+  }
+  .modal-close:hover{ background:rgba(255,255,255,0.18); }
+  .modal-body{ padding:20px 22px 6px; display:flex; flex-direction:column; gap:20px; }
+  .modal-disclaimer{
+    margin:0 22px 4px; padding:10px 12px; font-size:11px; line-height:1.5; color:var(--ink-soft);
+    background:var(--paper); border:1px solid var(--line-soft); border-radius:3px;
+  }
+  .modal-section h4{
+    font-family:'IBM Plex Mono', monospace; font-size:11px; letter-spacing:0.1em; text-transform:uppercase;
+    color:var(--accent-ink); margin:0 0 9px;
+  }
+  .modal-section p{ font-size:14px; line-height:1.6; color:#2C3542; margin:0; }
+  .modal-section .section-note{ font-size:12.5px; color:var(--ink-soft); margin:0 0 10px; line-height:1.5; }
+  .modal-section .plain-sentence{ font-size:14px; line-height:1.6; color:#2C3542; margin:0 0 12px; }
+  .stat-caption{ font-size:9.5px; color:var(--ink-soft); line-height:1.3; margin-top:2px; font-family:'IBM Plex Sans', sans-serif; text-transform:none; letter-spacing:0; }
+  .ai-tag{
+    display:inline-flex; align-items:center; gap:5px; font-family:'IBM Plex Mono', monospace;
+    font-size:9.5px; letter-spacing:0.08em; text-transform:uppercase; color:var(--accent-ink);
+    background:#F5EBD3; border:1px solid #DCC489; padding:2px 8px; border-radius:10px; margin-bottom:8px;
+  }
+
+  .txn-table{ width:100%; border-collapse:collapse; font-size:13px; }
+  .txn-table th{
+    text-align:left; font-family:'IBM Plex Mono', monospace; font-size:10px; letter-spacing:0.06em;
+    text-transform:uppercase; color:var(--ink-soft); border-bottom:1px solid var(--line); padding:6px 8px;
+  }
+  .txn-table td{ padding:7px 8px; border-bottom:1px solid var(--line-soft); font-family:'IBM Plex Mono', monospace; color:var(--ink); }
+  .txn-table tfoot td{ font-weight:600; border-top:1px solid var(--line); border-bottom:none; }
+
+  .spark-wrap{ background:var(--paper); border:1px solid var(--line-soft); border-radius:3px; padding:14px 16px; }
+  .spark-stat-row{ display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; margin-top:10px; text-align:center; }
+  .spark-stat-row .spark-stat{ display:flex; flex-direction:column; gap:2px; }
+  .spark-stat-row .spark-stat-label{ font-family:'IBM Plex Mono', monospace; font-size:9.5px; letter-spacing:0.06em; text-transform:uppercase; color:var(--ink-soft); }
+  .spark-stat-row .spark-stat-value{ font-family:'IBM Plex Mono', monospace; font-size:14px; font-weight:600; color:var(--ink); }
+  .spark-stat-row .spark-stat-value.pos{ color:var(--pos); }
+  .spark-stat-row .spark-stat-value.neg{ color:var(--neg); }
+
+  .modal-footer{
+    display:flex; justify-content:space-between; align-items:center; gap:12px;
+    padding:14px 22px 20px; margin-top:6px; border-top:1px solid var(--line-soft);
+  }
+  .modal-footer .hint{ font-size:11px; color:var(--ink-soft); }
+  .btn-secondary{
+    font-family:'IBM Plex Mono', monospace; font-size:12px; letter-spacing:0.03em; text-transform:uppercase;
+    background:var(--card); border:1px solid var(--line); color:var(--ink-soft);
+    padding:9px 16px; border-radius:3px; cursor:pointer; white-space:nowrap;
+  }
+  .btn-secondary:hover{ border-color:var(--navy); color:var(--navy); }
+
+  @media (prefers-reduced-motion: reduce){ html{scroll-behavior:auto;} *{transition:none !important;} }
+
+  /* ============ DISCLAIMER BANNER (static, not sticky) ============ */
+  .disclaimer-banner{
+    background:#F5EBD3;
+    border-bottom:2px solid var(--accent);
+    padding:11px 24px;
+    display:flex;
+    align-items:flex-start;
+    gap:12px;
+  }
+  .disclaimer-banner .disclaimer-icon{
+    flex:none; width:20px; height:20px; border-radius:50%;
+    background:var(--accent); color:#fff; font-family:'IBM Plex Mono', monospace;
+    font-weight:700; font-size:12.5px; display:flex; align-items:center; justify-content:center;
+    margin-top:1px;
+  }
+  .disclaimer-banner p{
+    max-width:1220px; margin:0; font-size:12px; line-height:1.55; color:var(--accent-ink);
+  }
+</style>
+</head>
+<body>
+
+<header class="site">
+  <div class="header-inner">
+    <div class="brand">
+      <span class="mark">Public Filings · Form 4</span>
+      <h1>The Boardroom</h1>
+      <p class="sub">CEO stock trades from SEC filings, in plain language. Browse, search, and see which trades the market is watching.</p>
+    </div>
+    <div class="header-right">
+      <div class="powered-badge">
+        <a href="https://hermai.ai/" target="_blank" rel="noopener noreferrer">Powered by <strong>HERMAI</strong></a>
+      </div>
+      <div class="search-wrap">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input id="searchInput" type="text" placeholder="Search by CEO, ticker, or company…">
+      </div>
+    </div>
+  </div>
+</header>
+
+<div class="disclaimer-banner">
+  <span class="disclaimer-icon">!</span>
+  <p>Disclaimer: The information on this website is based on publicly available SEC filings and may include AI-generated summaries and calculated estimates. It is simplified for readability and does not constitute financial, legal, or investment advice. Executive stock sales can occur for many reasons, and a reported transaction should not be interpreted by itself as evidence of an executive's outlook, misconduct, or future stock performance. Users should review the original SEC filing before relying on any summary or calculation.</p>
+</div>
+
+<div class="toolbar">
+  <div class="sort-tabs" id="sortTabs">
+    <button data-sort="latest" class="active">Latest</button>
+    <button data-sort="largest">Biggest Trades</button>
+    <button data-sort="viewed">Popular</button>
+    <button data-sort="performance">Best Performance</button>
+  </div>
+  <div class="result-count" id="resultCount">— trades</div>
+</div>
+
+<div class="facet-row" id="perfPeriodRow" style="display:none;">
+  <span class="facet-label">Return period:</span>
+  <select id="perfPeriodSelect">
+    <option value="m3">3 Months</option>
+    <option value="m6">6 Months</option>
+    <option value="y1">1 Year</option>
+    <option value="sinceTrade">Since Trade</option>
+  </select>
+</div>
+
+<div class="filter-row" id="filterRow"></div>
+
+<div class="facet-row" id="facetRow">
+  <span class="facet-label">Refine:</span>
+  <select id="companyFilter"></select>
+  <select id="ceoFilter"></select>
+  <select id="sectorFilter"></select>
+  <select id="yearFilter"></select>
+  <select id="planFilter"></select>
+  <select id="valueFilter"></select>
+  <select id="holdingsFilter"></select>
+</div>
+
+<main class="layout">
+  <section class="feed" id="feed"></section>
+
+  <aside class="sidebar">
+    <div class="side-box">
+      <p class="sample-note">Source: SEC Form 4 filings. Updated when new filings post.<br>Last updated: <strong>PLACEHOLDER</strong></p>
+    </div>
+
+    <div class="side-box">
+      <h2>What is a Form 4?</h2>
+      <p>Company insiders — officers, directors, and large shareholders — must report most stock trades to the SEC within two business days on Form 4. It's the fastest public window into what people running a company are doing with their own shares.</p>
+    </div>
+
+    <div class="side-box glossary">
+      <h2>Common transaction codes</h2>
+      <dl>
+        <dt>P — Open market buy</dt>
+        <dd>Insider purchased shares on the open market with their own money.</dd>
+        <dt>S — Open market sell</dt>
+        <dd>Insider sold shares on the open market.</dd>
+        <dt>A — Award / grant</dt>
+        <dd>Shares granted as compensation, e.g. RSU vesting — not a cash transaction.</dd>
+        <dt>M — Option exercise</dt>
+        <dd>Insider exercised stock options, converting them into shares.</dd>
+        <dt>10b5-1 plan</dt>
+        <dd>A pre-scheduled trading plan set up in advance, often used to avoid timing questions.</dd>
+      </dl>
+    </div>
+  </aside>
+</main>
+
+<footer class="site">
+  <div class="inner">
+    Powered by <a href="https://hermai.ai/" target="_blank" rel="noopener noreferrer" style="color:var(--accent-ink); font-weight:600; text-decoration:none; border-bottom:1px solid var(--accent);">HERMAI</a>
+  </div>
+</footer>
+
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal-panel" id="modalPanel" role="dialog" aria-modal="true"></div>
+</div>
+
+<script>
+/* =========================================================
+   SAMPLE DATA — illustrative only. Real company/CEO pairings,
+   fabricated trade numbers. Replace TRADES with your processed
+   Form 4 dataset; keep field names identical to wire it up with
+   no changes to the render logic below.
+
+   Expected fields per trade:
+   id, ceo, company, ticker, sector, tradeType (buy|sell|award|option),
+   tradeTypeLabel, transactionDate (YYYY-MM-DD), filedDate (YYYY-MM-DD),
+   shares, price, value, pctHoldingsChange (number, +/-),
+   tenB51 (bool), perfWind({days, changePct}), views, upvotes,
+   title, summary, tags [], sourceUrl
+   ========================================================= */
+let TRADES = [];
+
+const CATEGORY_META = {
+  buy:    {label:"Buy",             color:"var(--tab-buy)",    group:"market"},
+  sell:   {label:"Sell",            color:"var(--tab-sell)",   group:"market"},
+  award:  {label:"Award / Grant",   color:"var(--tab-award)",  group:"comp"},
+  option: {label:"Option Exercise", color:"var(--tab-option)", group:"comp"},
+};
+const GROUP_LABELS = {market:"Market Trades", comp:"Compensation Events"};
+
+async function loadTradesFromApi(){
+  try{
+    const res = await fetch('/api/form4', { cache: 'no-store' });
+    if(!res.ok) throw new Error(`API error ${res.status}`);
+    const data = await res.json();
+    const incoming = Array.isArray(data?.trades) ? data.trades : [];
+
+    // normalize + safe defaults so existing UI doesn't break
+    TRADES = incoming.map((t, idx) => ({
+      id: t.id ?? `trade-${idx}`,
+      ceo: t.ceo ?? "Unknown CEO",
+      company: t.company ?? "Unknown Company",
+      ticker: t.ticker ?? "N/A",
+      sector: t.sector ?? "Unknown",
+      tradeType: t.tradeType ?? "sell",
+      tradeTypeLabel: t.tradeTypeLabel ?? "Open Market Sell",
+      transactionDate: t.transactionDate ?? "2026-01-01",
+      filedDate: t.filedDate ?? t.transactionDate ?? "2026-01-01",
+      shares: Number(t.shares ?? 0),
+      price: Number(t.price ?? 0),
+      value: Number(t.value ?? 0),
+      pctHoldingsChange: Number(t.pctHoldingsChange ?? 0),
+      tenB51: Boolean(t.tenB51),
+      perf: t.perf ?? { sinceTrade: { changePct: 0 } },
+      upvotes: Number(t.upvotes ?? 0),
+      sharesOwnedAfter: Number(t.sharesOwnedAfter ?? 0),
+      lines: Array.isArray(t.lines) ? t.lines : [{ shares:Number(t.shares ?? 0), price:Number(t.price ?? 0), value:Number(t.value ?? 0) }],
+      title: t.title ?? "New Form 4 filing",
+      summary: t.summary ?? "No summary provided.",
+      tags: Array.isArray(t.tags) ? t.tags : [],
+      sourceUrl: t.sourceUrl ?? "#",
+    }));
+
+    // re-init vote map for loaded trades
+    state.votes = {};
+    TRADES.forEach(t => { state.votes[t.id] = t.upvotes || 0; });
+
+    // rebuild facet dropdowns from live data
+    buildFacetRow();
+    render();
+  }catch(err){
+    console.error('Failed loading trades:', err);
+    const feed = document.getElementById('feed');
+    feed.innerHTML = `<div class="no-results">Could not load live Form 4 data from /api/form4 yet.</div>`;
+    document.getElementById('resultCount').textContent = `0 trades`;
+  }
+}
+
+let state = {
+  sort:"latest",
+  perfPeriod:"m3",
+  activeCategory: null,
+  search:"",
+  company:"", ceo:"", sector:"", year:"", plan:"", valueBand:"", holdingsBand:"",
+  voted: new Set(),
+  votes: {},
+};
+TRADES.forEach(t => state.votes[t.id] = t.upvotes);
+
+function fmtDate(d){
+  const dt = new Date(d + "T00:00:00");
+  return dt.toLocaleDateString('en-US', {year:'numeric', month:'short', day:'numeric'});
+}
+function fmtMoney(v){
+  if(v >= 1000000) return "$" + (v/1000000).toFixed(1) + "M";
+  if(v >= 1000) return "$" + (v/1000).toFixed(0) + "K";
+  return "$" + v;
+}
+function valueBand(v){
+  if(v < 1000000) return "lt1m";
+  if(v < 5000000) return "1to5m";
+  if(v < 25000000) return "5to25m";
+  return "gt25m";
+}
+const VALUE_BAND_LABELS = {lt1m:"Under $1M", "1to5m":"$1M–$5M", "5to25m":"$5M–$25M", gt25m:"$25M+"};
+function holdingsBand(pct){
+  const a = Math.abs(pct);
+  if(a < 1) return "lt1";
+  if(a < 5) return "1to5";
+  if(a < 15) return "5to15";
+  return "gt15";
+}
+const HOLDINGS_BAND_LABELS = {lt1:"Under 1%", "1to5":"1–5%", "5to15":"5–15%", gt15:"15%+"};
+const NOT_REPORTED = "Not reported";
+const PERIOD_LABELS = {m3:"3-Month Return", m6:"6-Month Return", y1:"1-Year Return", sinceTrade:"Since Trade"};
+const PERIOD_THRESHOLD_DAYS = {m3:90, m6:180, y1:365};
+
+function daysSince(dateStr){
+  const txn = new Date(dateStr + "T00:00:00");
+  const now = new Date();
+  return Math.floor((now - txn) / 86400000);
+}
+
+// Returns {available, changePct, days, label} for a trade + period ("m3"|"m6"|"y1"|"sinceTrade").
+// available=false means not enough real time has passed since the trade for that
+// window to exist yet — rendered as "Not reported" rather than a fabricated number.
+function getPerfForPeriod(t, period){
+  const elapsed = daysSince(t.transactionDate);
+  if(period === "sinceTrade"){
+    const entry = t.perf.sinceTrade;
+    return {available: !!entry, changePct: entry ? entry.changePct : null, days: elapsed, label: PERIOD_LABELS.sinceTrade};
+  }
+  const threshold = PERIOD_THRESHOLD_DAYS[period];
+  const entry = t.perf[period];
+  if(!entry || elapsed < threshold){
+    return {available:false, changePct:null, days:threshold, label: PERIOD_LABELS[period]};
+  }
+  return {available:true, changePct: entry.changePct, days: threshold, label: PERIOD_LABELS[period]};
+}
+
+// Placeholder link until a real per-filing SEC.gov URL is wired up via the EDGAR API.
+// Points to a real, working EDGAR company search (not the exact filing) so the
+// link genuinely goes somewhere useful today.
+function formFourLink(t){
+  return `https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&company=${encodeURIComponent(t.company)}&type=4&dateb=&owner=include&count=40`;
+}
+
+function buildFilterRow(){
+  const row = document.getElementById('filterRow');
+  row.innerHTML = "";
+  ["market","comp"].forEach(groupKey => {
+    const groupWrap = document.createElement('div');
+    groupWrap.className = "chip-group";
+    const label = document.createElement('span');
+    label.className = "chip-group-label";
+    label.textContent = GROUP_LABELS[groupKey];
+    groupWrap.appendChild(label);
+    Object.entries(CATEGORY_META).filter(([,meta]) => meta.group === groupKey).forEach(([key, meta]) => {
+      const chip = document.createElement('button');
+      chip.className = "chip";
+      chip.dataset.cat = key;
+      chip.innerHTML = `<span class="dot" style="background:${meta.color}"></span>${meta.label}`;
+      chip.addEventListener('click', () => {
+        if(state.activeCategory === key) state.activeCategory = null;
+        else state.activeCategory = key;
+        render();
+      });
+      groupWrap.appendChild(chip);
+    });
+    row.appendChild(groupWrap);
+  });
+  const clear = document.createElement('button');
+  clear.className = "chip clear";
+  clear.textContent = "Clear filters";
+  clear.addEventListener('click', () => { state.activeCategory = null; resetFacets(); render(); });
+  row.appendChild(clear);
+}
+
+function buildFacetRow(){
+  const companies = [...new Set(TRADES.map(t => t.company))].sort();
+  const ceos = [...new Set(TRADES.map(t => t.ceo))].sort();
+  const sectors = [...new Set(TRADES.map(t => t.sector))].sort();
+  const years = [...new Set(TRADES.map(t => new Date(t.filedDate + "T00:00:00").getFullYear()))].sort((a,b)=>b-a);
+
+  const setOptions = (id, items, allLabel) => {
+    const el = document.getElementById(id);
+    el.innerHTML = `<option value="">${allLabel}</option>` + items.map(v => `<option value="${v}">${v}</option>`).join('');
+  };
+  setOptions('companyFilter', companies, "All companies");
+  setOptions('ceoFilter', ceos, "All CEOs");
+  setOptions('sectorFilter', sectors, "All sectors");
+  setOptions('yearFilter', years, "All filing years");
+
+  document.getElementById('planFilter').innerHTML = `
+    <option value="">10b5-1: All</option>
+    <option value="yes">10b5-1 plan</option>
+    <option value="no">Discretionary</option>`;
+
+  document.getElementById('valueFilter').innerHTML = `<option value="">Any trade value</option>` +
+    Object.entries(VALUE_BAND_LABELS).map(([k,l]) => `<option value="${k}">${l}</option>`).join('');
+
+  document.getElementById('holdingsFilter').innerHTML = `<option value="">Any % of holdings</option>` +
+    Object.entries(HOLDINGS_BAND_LABELS).map(([k,l]) => `<option value="${k}">${l}</option>`).join('');
+
+  const bind = (id, stateKey) => {
+    const el = document.getElementById(id);
+    el.addEventListener('change', () => { state[stateKey] = el.value; el.classList.toggle('is-set', !!el.value); render(); });
+  };
+  bind('companyFilter','company'); bind('ceoFilter','ceo'); bind('sectorFilter','sector');
+  bind('yearFilter','year'); bind('planFilter','plan'); bind('valueFilter','valueBand'); bind('holdingsFilter','holdingsBand');
+}
+
+function resetFacets(){
+  state.company=""; state.ceo=""; state.sector=""; state.year=""; state.plan=""; state.valueBand=""; state.holdingsBand="";
+  ['companyFilter','ceoFilter','sectorFilter','yearFilter','planFilter','valueFilter','holdingsFilter'].forEach(id => {
+    const el = document.getElementById(id);
+    el.value = "";
+    el.classList.remove('is-set');
+  });
+}
+
+function getFiltered(){
+  let list = TRADES.slice();
+  if(state.activeCategory) list = list.filter(t => t.tradeType === state.activeCategory);
+  if(state.company) list = list.filter(t => t.company === state.company);
+  if(state.ceo) list = list.filter(t => t.ceo === state.ceo);
+  if(state.sector) list = list.filter(t => t.sector === state.sector);
+  if(state.year) list = list.filter(t => new Date(t.filedDate + "T00:00:00").getFullYear() === Number(state.year));
+  if(state.plan === "yes") list = list.filter(t => t.tenB51);
+  if(state.plan === "no") list = list.filter(t => !t.tenB51);
+  if(state.valueBand) list = list.filter(t => valueBand(t.value) === state.valueBand);
+  if(state.holdingsBand) list = list.filter(t => holdingsBand(t.pctHoldingsChange) === state.holdingsBand);
+  if(state.search.trim()){
+    const q = state.search.trim().toLowerCase();
+    list = list.filter(t =>
+      t.title.toLowerCase().includes(q) || t.summary.toLowerCase().includes(q) ||
+      t.ceo.toLowerCase().includes(q) || t.company.toLowerCase().includes(q) ||
+      t.ticker.toLowerCase().includes(q) || t.tags.some(tag => tag.toLowerCase().includes(q))
+    );
+  }
+  if(state.sort === "latest") list.sort((a,b) => new Date(b.transactionDate) - new Date(a.transactionDate));
+  else if(state.sort === "largest") list.sort((a,b) => b.value - a.value);
+  else if(state.sort === "viewed") list.sort((a,b) => state.votes[b.id] - state.votes[a.id]);
+  else if(state.sort === "performance"){
+    list.sort((a,b) => {
+      const pa = getPerfForPeriod(a, state.perfPeriod);
+      const pb = getPerfForPeriod(b, state.perfPeriod);
+      if(pa.available && pb.available) return pb.changePct - pa.changePct;
+      if(pa.available && !pb.available) return -1;
+      if(!pa.available && pb.available) return 1;
+      return new Date(b.transactionDate) - new Date(a.transactionDate);
+    });
+  }
+  return list;
+}
+
+function cardTemplate(t){
+  const meta = CATEGORY_META[t.tradeType];
+  const voted = state.voted.has(t.id);
+  const activePeriod = state.sort === "performance" ? state.perfPeriod : "sinceTrade";
+  const perfInfo = getPerfForPeriod(t, activePeriod);
+  const perfClass = !perfInfo.available ? '' : (perfInfo.changePct > 0 ? 'pos' : (perfInfo.changePct < 0 ? 'neg' : ''));
+  const perfSign = perfInfo.available && perfInfo.changePct > 0 ? '+' : '';
+  const perfLabel = activePeriod === "sinceTrade" ? `${perfInfo.days}d Since Trade` : perfInfo.label;
+  const perfValue = perfInfo.available ? `${perfSign}${perfInfo.changePct.toFixed(1)}%` : NOT_REPORTED;
+  const holdSign = t.pctHoldingsChange > 0 ? '+' : '';
+  const priceDisplay = t.tradeType === "award" ? NOT_REPORTED : `$${t.price.toFixed(2)}`;
+  return `
+  <article class="trade-card" style="--tab-color:${meta.color}">
+    <div class="vote-col">
+      <button class="vote-btn ${voted ? 'voted':''}" data-vote="${t.id}" aria-label="Upvote this trade">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 4l8 9h-5v7H9v-7H4z"/></svg>
+      </button>
+      <div class="vote-count">${state.votes[t.id]}</div>
+    </div>
+    <div class="card-body">
+      <div class="card-top">
+        <div class="docket-line">
+          <span class="ticker">${t.ticker}</span>
+          <span>·</span>
+          <span>${t.company}</span>
+          <span>·</span>
+          <span class="type-label" style="--tab-color:${meta.color}">${meta.label}</span>
+        </div>
+        <div class="stamp">${t.tradeTypeLabel}</div>
+      </div>
+      <h3 class="case-title">${t.title}</h3>
+      <div class="case-meta">${t.ceo}, CEO &nbsp;·&nbsp; ${t.sector} &nbsp;·&nbsp; Traded ${fmtDate(t.transactionDate)} &nbsp;·&nbsp; Filed ${fmtDate(t.filedDate)}</div>
+
+      <div class="badge-row">
+        <span class="plan-badge ${t.tenB51 ? 'plan' : ''}">${t.tenB51 ? '10b5-1 Plan' : 'Discretionary'}</span>
+      </div>
+
+      <div class="stat-grid">
+        <div class="stat"><span class="stat-label">Shares</span><span class="stat-value">${t.shares.toLocaleString()}</span></div>
+        <div class="stat"><span class="stat-label">Price</span><span class="stat-value">${priceDisplay}</span></div>
+        <div class="stat"><span class="stat-label">Value</span><span class="stat-value">${fmtMoney(t.value)}</span></div>
+        <div class="stat"><span class="stat-label">% of Holdings</span><span class="stat-value">${holdSign}${t.pctHoldingsChange.toFixed(1)}%</span></div>
+        <div class="stat"><span class="stat-label">${perfLabel}</span><span class="stat-value ${perfClass}">${perfValue}</span></div>
+      </div>
+
+      <p class="case-summary">${t.summary}</p>
+      <div class="tag-row">${t.tags.map(tg => `<span class="tag">#${tg}</span>`).join('')}</div>
+      <div class="card-footer">
+        <button class="decision-link" data-modal="${t.id}" type="button">View Filing →</button>
+        <a class="form4-link" href="${formFourLink(t)}" target="_blank" rel="noopener noreferrer">FORM 4 LINK ↗</a>
+      </div>
+    </div>
+  </article>`;
+}
+
+/* ============ MODAL: "AI summary" filing detail popup ============ */
+
+const MEANING_BY_TYPE = {
+  buy: "This was an open-market purchase — the CEO used their own money to buy shares, the same way any investor would. Because insiders already tend to hold concentrated stakes, a voluntary buy is relatively rare and is often read as a sign of personal confidence, though it can also simply reflect routine portfolio rebalancing.",
+  sell: "This was an open-market sale — the CEO sold shares they already owned. Executives regularly sell for reasons that have nothing to do with a company's prospects, like paying taxes on prior stock awards, funding a large purchase, or diversifying a concentrated position.",
+  award: "This was a stock award or grant, typically restricted stock units (RSUs) vesting as scheduled compensation. No cash changed hands and no market decision was made by the executive — it's simply pay arriving in the form of shares rather than salary.",
+  option: "This was an option exercise — the CEO converted previously granted stock options into actual shares, often selling some or all of them immediately afterward to cover the exercise cost and taxes. This is usually tied to an options grant's expiration schedule rather than a fresh market view.",
+};
+
+function planMeaning(t){
+  return t.tenB51
+    ? "This transaction was carried out under a 10b5-1 trading plan — a schedule the executive set up in advance, often months earlier, specifying when and how much to trade. Plans like this are designed to remove any question about trading on non-public information, since the schedule was locked in before the executive could have known what today's news would be."
+    : "This was a discretionary transaction — the executive (or their broker) chose the timing directly, rather than following a pre-set plan. Discretionary trades draw more scrutiny than scheduled ones since the timing is a live choice, though they are entirely routine and legal when properly disclosed.";
+}
+
+function buildSparkSVG(t){
+  const since = getPerfForPeriod(t, "sinceTrade");
+  const start = t.price;
+  const end = t.price * (1 + since.changePct/100);
+  const n = 9;
+  const pts = [];
+  for(let i=0;i<=n;i++){
+    const frac = i/n;
+    const base = start + (end-start)*frac;
+    const wiggle = (i===0 || i===n) ? 0 : Math.sin((t.id+1)*(i+1)*1.7) * (Math.abs(end-start)*0.18 + start*0.006);
+    pts.push(base + wiggle);
+  }
+  const min = Math.min(...pts), max = Math.max(...pts);
+  const range = (max - min) || 1;
+  const w = 300, h = 84, pad = 8;
+  const coords = pts.map((v,i) => {
+    const x = (i/n) * (w - pad*2) + pad;
+    const y = h - pad - ((v - min)/range) * (h - pad*2);
+    return [x,y];
+  });
+  const lineColor = since.changePct >= 0 ? 'var(--pos)' : 'var(--neg)';
+  const polyline = coords.map(c => c.join(',')).join(' ');
+  const areaPts = `${pad},${h-pad} ` + polyline + ` ${w-pad},${h-pad}`;
+  const [x0,y0] = coords[0];
+  const [xN,yN] = coords[n];
+  return `
+    <svg viewBox="0 0 ${w} ${h}" width="100%" height="${h}">
+      <polygon points="${areaPts}" fill="${lineColor}" opacity="0.12"></polygon>
+      <polyline points="${polyline}" fill="none" stroke="${lineColor}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"></polyline>
+      <circle cx="${x0}" cy="${y0}" r="4" fill="#fff" stroke="${lineColor}" stroke-width="2"></circle>
+      <circle cx="${xN}" cy="${yN}" r="4" fill="${lineColor}" stroke="#fff" stroke-width="1.5"></circle>
+    </svg>`;
+}
+
+function tradeSummarySentence(t){
+  const value = fmtMoney(t.value);
+  const price = "$" + t.price.toFixed(2);
+  const shares = t.shares.toLocaleString();
+  const after = t.sharesOwnedAfter.toLocaleString();
+  if(t.tradeType === "sell"){
+    return `${t.ceo} sold ${shares} shares for approximately ${value} at an average price of ${price} per share; the filing reports total holdings of ${after} shares following the transaction.`;
+  }
+  if(t.tradeType === "buy"){
+    return `${t.ceo} bought ${shares} shares for approximately ${value} at an average price of ${price} per share; the filing reports total holdings of ${after} shares following the transaction.`;
+  }
+  if(t.tradeType === "award"){
+    return `${t.ceo} received an award of ${shares} shares valued at approximately ${value}. No cash changed hands and no per-share price is reported for this kind of transaction — the filing reports total holdings of ${after} shares following the award.`;
+  }
+  return `${t.ceo} exercised options for ${shares} shares, valued at approximately ${value} at the time of exercise; the filing reports total holdings of ${after} shares following the transaction.`;
+}
+
+function perfSentence(t){
+  const since = getPerfForPeriod(t, "sinceTrade");
+  const perf = since.changePct;
+  const start = t.price;
+  const end = t.price * (1 + perf/100);
+  const dir = perf > 0 ? "up" : (perf < 0 ? "down" : "flat");
+  const verb = perf > 0 ? "rising" : (perf < 0 ? "falling" : "holding steady");
+  if(perf === 0){
+    return `${t.company}'s stock has held steady at $${start.toFixed(2)} since the transaction date, over the ${since.days} days that followed.`;
+  }
+  return `${t.company}'s stock is ${dir} ${Math.abs(perf).toFixed(1)}% since the transaction date, ${verb} from $${start.toFixed(2)} to $${end.toFixed(2)} over ${since.days} days.`;
+}
+
+function txnTableHTML(t){
+  const isAward = t.tradeType === "award";
+  const rows = t.lines.map(l => `
+    <tr>
+      <td>${fmtDate(t.transactionDate)}</td>
+      <td>${t.tradeTypeLabel}</td>
+      <td>${l.shares.toLocaleString()}</td>
+      <td>${isAward ? NOT_REPORTED : "$" + l.price.toFixed(2)}</td>
+      <td>${fmtMoney(l.value)}</td>
+    </tr>`).join('');
+  return `
+    <table class="txn-table">
+      <thead><tr><th>Date</th><th>Type</th><th>Shares</th><th>Price</th><th>Value</th></tr></thead>
+      <tbody>${rows}</tbody>
+      <tfoot><tr><td colspan="2">Total</td><td>${t.shares.toLocaleString()}</td><td>${isAward ? NOT_REPORTED : "avg $" + t.price.toFixed(2)}</td><td>${fmtMoney(t.value)}</td></tr></tfoot>
+    </table>`;
+}
+
+function modalTemplate(t){
+  const meta = CATEGORY_META[t.tradeType];
+  const since = getPerfForPeriod(t, "sinceTrade");
+  const perf = since.changePct;
+  const perfClass = perf > 0 ? 'pos' : (perf < 0 ? 'neg' : '');
+  const perfSign = perf > 0 ? '+' : '';
+  const startPrice = t.price;
+  const endPrice = t.price * (1 + perf/100);
+  const priceDisplay = t.tradeType === "award" ? NOT_REPORTED : `$${t.price.toFixed(2)}`;
+
+  return `
+    <div class="modal-header">
+      <div>
+        <div class="docket-line"><span class="ticker">${t.ticker}</span><span>·</span><span>${t.company}</span></div>
+        <div class="modal-title">${t.ceo} — ${t.tradeTypeLabel}</div>
+      </div>
+      <button class="modal-close" id="modalCloseBtn" aria-label="Close" type="button">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="modal-section">
+        <span class="ai-tag">✦ Plain English Summary</span>
+        <h4>Trade Summary</h4>
+        <p class="plain-sentence">${tradeSummarySentence(t)}</p>
+        <div class="stat-grid">
+          <div class="stat"><span class="stat-label">Shares</span><span class="stat-value">${t.shares.toLocaleString()}</span></div>
+          <div class="stat"><span class="stat-label">Avg. Price</span><span class="stat-value">${priceDisplay}</span></div>
+          <div class="stat"><span class="stat-label">Total Value</span><span class="stat-value">${fmtMoney(t.value)}</span></div>
+          <div class="stat"><span class="stat-label">Transaction Date</span><span class="stat-value">${fmtDate(t.transactionDate)}</span></div>
+          <div class="stat"><span class="stat-label">Filed Date</span><span class="stat-value">${fmtDate(t.filedDate)}</span></div>
+          <div class="stat">
+            <span class="stat-label">Holdings After</span>
+            <span class="stat-value">${t.sharesOwnedAfter.toLocaleString()} sh</span>
+            <span class="stat-caption">Shares the CEO owned after the trade</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-section">
+        <h4>Transactions in this filing</h4>
+        <p class="section-note">Individual trades reported together on the same Form 4</p>
+        ${txnTableHTML(t)}
+      </div>
+
+      <div class="modal-section">
+        <h4>What does this mean?</h4>
+        <p>${MEANING_BY_TYPE[t.tradeType]}</p>
+        <p style="margin-top:10px;">${planMeaning(t)}</p>
+        <p style="margin-top:10px;">${t.summary}</p>
+      </div>
+
+      <div class="modal-section">
+        <h4>Stock performance since trade</h4>
+        <p class="plain-sentence">${perfSentence(t)}</p>
+        <div class="spark-wrap">
+          ${buildSparkSVG(t)}
+          <div class="spark-stat-row">
+            <div class="spark-stat"><span class="spark-stat-label">Trade Date Price</span><span class="spark-stat-value">$${startPrice.toFixed(2)}</span></div>
+            <div class="spark-stat"><span class="spark-stat-label">Current Price</span><span class="spark-stat-value">$${endPrice.toFixed(2)}</span></div>
+            <div class="spark-stat"><span class="spark-stat-label">${since.days}-Day Return</span><span class="spark-stat-value ${perfClass}">${perfSign}${perf.toFixed(1)}%</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-disclaimer">Trade summaries on this page are simplified for readability and are not a substitute for the full Form 4 filing. Post-trade performance reflects broad market movement after the trade date and is not investment advice.</div>
+    <div class="modal-footer">
+      <span class="hint">Arbitrary link until the EDGAR API is wired up</span>
+      <a class="btn-secondary" href="${formFourLink(t)}" target="_blank" rel="noopener noreferrer" style="text-decoration:none; display:inline-block;">FORM 4 LINK ↗</a>
+    </div>`;
+}
+
+function openModal(id){
+  const t = TRADES.find(x => x.id === id);
+  if(!t) return;
+  document.getElementById('modalPanel').innerHTML = modalTemplate(t);
+  document.getElementById('modalOverlay').classList.add('open');
+  document.getElementById('modalCloseBtn').addEventListener('click', closeModal);
+}
+function closeModal(){
+  document.getElementById('modalOverlay').classList.remove('open');
+}
+document.getElementById('modalOverlay').addEventListener('click', (e) => {
+  if(e.target.id === 'modalOverlay') closeModal();
+});
+document.addEventListener('keydown', (e) => {
+  if(e.key === 'Escape') closeModal();
+});
+
+function render(){
+  document.querySelectorAll('.chip[data-cat]').forEach(chip => {
+    chip.classList.toggle('active', chip.dataset.cat === state.activeCategory);
+  });
+  document.querySelectorAll('#sortTabs button').forEach(b => b.classList.toggle('active', b.dataset.sort === state.sort));
+
+  const list = getFiltered();
+  const feed = document.getElementById('feed');
+  document.getElementById('resultCount').textContent = `${list.length} trade${list.length===1?'':'s'}`;
+
+  if(!list.length){
+    feed.innerHTML = `<div class="no-results">No trades match your search or filters. Try clearing a filter above.</div>`;
+    return;
+  }
+  feed.innerHTML = list.map(cardTemplate).join('');
+
+  feed.querySelectorAll('[data-vote]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const id = Number(btn.dataset.vote);
+      if(state.voted.has(id)){ state.voted.delete(id); state.votes[id] -= 1; }
+      else { state.voted.add(id); state.votes[id] += 1; }
+      render();
+    });
+  });
+
+  feed.querySelectorAll('[data-modal]').forEach(btn => {
+    btn.addEventListener('click', () => openModal(Number(btn.dataset.modal)));
+  });
+}
+
+document.getElementById('sortTabs').addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-sort]');
+  if(!btn) return;
+  state.sort = btn.dataset.sort;
+  document.getElementById('perfPeriodRow').style.display = (state.sort === 'performance') ? 'flex' : 'none';
+  render();
+});
+
+document.getElementById('perfPeriodSelect').addEventListener('change', (e) => {
+  state.perfPeriod = e.target.value;
+  render();
+});
+
+let searchTimer;
+document.getElementById('searchInput').addEventListener('input', (e) => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => { state.search = e.target.value; render(); }, 120);
+});
+
+buildFilterRow();
+loadTradesFromApi();
+setInterval(loadTradesFromApi, 5 * 60 * 1000); // refresh every 5 minutes
+</script>
+</body>
+</html>
