@@ -43,7 +43,6 @@
   }
   a{color:inherit;}
 
-  /* ============ HEADER ============ */
   header.site{
     background:linear-gradient(180deg, var(--navy) 0%, var(--navy-deep) 100%);
     border-bottom:3px solid var(--accent);
@@ -89,7 +88,6 @@
   .search-wrap input::placeholder{ color:var(--header-fg-soft); }
   .search-wrap:focus-within input::placeholder{ color:#8A93A8; }
 
-  /* ============ TOOLBAR ============ */
   .toolbar{ max-width:1220px; margin:0 auto; padding:14px 24px 0; display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap; }
   .sort-tabs{ display:flex; gap:2px; font-family:'IBM Plex Mono', monospace; font-size:12.5px; }
   .sort-tabs button{ border:1px solid var(--line); background:var(--card); color:var(--ink-soft); padding:7px 14px; cursor:pointer; border-radius:var(--radius); letter-spacing:0.03em; text-transform:uppercase; }
@@ -117,11 +115,9 @@
   .facet-row select:focus{ outline:none; border-color:var(--navy); }
   .facet-row select.is-set{ border-color:var(--navy); color:var(--navy); font-weight:600; background-color:#EEF2FA; }
 
-  /* ============ LAYOUT ============ */
   .layout{ max-width:1220px; margin:0 auto; padding:20px 24px 80px; display:grid; grid-template-columns: 1fr 300px; gap:28px; align-items:start; }
   @media (max-width: 880px){ .layout{grid-template-columns:1fr;} .sidebar{order:2;} }
 
-  /* ============ FEED / CARDS ============ */
   .feed{ display:flex; flex-direction:column; gap:14px; }
   .trade-card{ background:var(--card); border:1px solid var(--line); border-radius:var(--radius); box-shadow:var(--shadow); display:flex; position:relative; overflow:hidden; transition:background 0.15s ease; }
   .trade-card:hover{ background:var(--card-hover); }
@@ -172,7 +168,6 @@
 
   .no-results{ text-align:center; padding:60px 20px; color:var(--ink-soft); font-family:'IBM Plex Mono', monospace; font-size:13px; border:1px dashed var(--line); border-radius:var(--radius); background:var(--card); }
 
-  /* ============ SIDEBAR ============ */
   .sidebar{ display:flex; flex-direction:column; gap:14px; }
   .side-box{ background:var(--card); border:1px solid var(--line); border-radius:var(--radius); padding:16px 18px; }
   .side-box h2{ font-family:'IBM Plex Mono', monospace; font-size:11px; letter-spacing:0.12em; text-transform:uppercase; color:var(--accent-ink); margin:0 0 10px; }
@@ -184,7 +179,6 @@
   footer.site{ border-top:1px solid var(--line); padding:22px 24px 40px; }
   footer.site .inner{ max-width:1220px; margin:0 auto; font-size:12px; color:var(--ink-soft); line-height:1.6; }
 
-  /* ============ MODAL ============ */
   .modal-overlay{
     position:fixed; inset:0; background:rgba(14,25,48,0.55);
     display:none; align-items:center; justify-content:center;
@@ -261,7 +255,6 @@
 
   @media (prefers-reduced-motion: reduce){ html{scroll-behavior:auto;} *{transition:none !important;} }
 
-  /* ============ DISCLAIMER BANNER (static, not sticky) ============ */
   .disclaimer-banner{
     background:#F5EBD3;
     border-bottom:2px solid var(--accent);
@@ -345,7 +338,7 @@
 
   <aside class="sidebar">
     <div class="side-box">
-      <p class="sample-note">Source: SEC Form 4 filings. Updated when new filings post.<br>Last updated: <strong>PLACEHOLDER</strong></p>
+      <p class="sample-note">Source: SEC Form 4 filings. Updated when new filings post.<br>Last updated: <strong id="lastUpdated">—</strong></p>
     </div>
 
     <div class="side-box">
@@ -382,21 +375,8 @@
 </div>
 
 <script>
-/* =========================================================
-   SAMPLE DATA — illustrative only. Real company/CEO pairings,
-   fabricated trade numbers. Replace TRADES with your processed
-   Form 4 dataset; keep field names identical to wire it up with
-   no changes to the render logic below.
-
-   Expected fields per trade:
-   id, ceo, company, ticker, sector, tradeType (buy|sell|award|option),
-   tradeTypeLabel, transactionDate (YYYY-MM-DD), filedDate (YYYY-MM-DD),
-   shares, price, value, pctHoldingsChange (number, +/-),
-   tenB51 (bool), perfWind({days, changePct}), views, upvotes,
-   title, summary, tags [], sourceUrl
-   ========================================================= */
 let TRADES = [];
-  
+
 const CATEGORY_META = {
   buy:    {label:"Buy",             color:"var(--tab-buy)",    group:"market"},
   sell:   {label:"Sell",            color:"var(--tab-sell)",   group:"market"},
@@ -412,15 +392,17 @@ async function loadTradesFromApi(){
     const data = await res.json();
     const incoming = Array.isArray(data?.trades) ? data.trades : [];
 
-    // normalize + safe defaults so existing UI doesn't break
+    const lu = document.getElementById('lastUpdated');
+    if (lu) lu.textContent = data?.fetchedAt ? new Date(data.fetchedAt).toLocaleString() : "—";
+
     TRADES = incoming.map((t, idx) => ({
-      id: t.id ?? `trade-${idx}`,
+      id: String(t.id ?? `trade-${idx}`),
       ceo: t.ceo ?? "Unknown CEO",
       company: t.company ?? "Unknown Company",
       ticker: t.ticker ?? "N/A",
       sector: t.sector ?? "Unknown",
       tradeType: t.tradeType ?? "sell",
-      tradeTypeLabel: t.tradeTypeLabel ?? "Open Market Sell",
+      tradeTypeLabel: t.tradeTypeLabel ?? "Insider Transaction",
       transactionDate: t.transactionDate ?? "2026-01-01",
       filedDate: t.filedDate ?? t.transactionDate ?? "2026-01-01",
       shares: Number(t.shares ?? 0),
@@ -438,11 +420,9 @@ async function loadTradesFromApi(){
       sourceUrl: t.sourceUrl ?? "#",
     }));
 
-    // re-init vote map for loaded trades
     state.votes = {};
     TRADES.forEach(t => { state.votes[t.id] = t.upvotes || 0; });
 
-    // rebuild facet dropdowns from live data
     buildFacetRow();
     render();
   }catch(err){
@@ -462,7 +442,6 @@ let state = {
   voted: new Set(),
   votes: {},
 };
-TRADES.forEach(t => state.votes[t.id] = t.upvotes);
 
 function fmtDate(d){
   const dt = new Date(d + "T00:00:00");
@@ -471,7 +450,7 @@ function fmtDate(d){
 function fmtMoney(v){
   if(v >= 1000000) return "$" + (v/1000000).toFixed(1) + "M";
   if(v >= 1000) return "$" + (v/1000).toFixed(0) + "K";
-  return "$" + v;
+  return "$" + Number(v).toFixed(2);
 }
 function valueBand(v){
   if(v < 1000000) return "lt1m";
@@ -497,15 +476,11 @@ function daysSince(dateStr){
   const now = new Date();
   return Math.floor((now - txn) / 86400000);
 }
-
-// Returns {available, changePct, days, label} for a trade + period ("m3"|"m6"|"y1"|"sinceTrade").
-// available=false means not enough real time has passed since the trade for that
-// window to exist yet — rendered as "Not reported" rather than a fabricated number.
 function getPerfForPeriod(t, period){
   const elapsed = daysSince(t.transactionDate);
   if(period === "sinceTrade"){
     const entry = t.perf.sinceTrade;
-    return {available: !!entry, changePct: entry ? entry.changePct : null, days: elapsed, label: PERIOD_LABELS.sinceTrade};
+    return {available: !!entry, changePct: entry ? entry.changePct : 0, days: elapsed, label: PERIOD_LABELS.sinceTrade};
   }
   const threshold = PERIOD_THRESHOLD_DAYS[period];
   const entry = t.perf[period];
@@ -515,11 +490,8 @@ function getPerfForPeriod(t, period){
   return {available:true, changePct: entry.changePct, days: threshold, label: PERIOD_LABELS[period]};
 }
 
-// Placeholder link until a real per-filing SEC.gov URL is wired up via the EDGAR API.
-// Points to a real, working EDGAR company search (not the exact filing) so the
-// link genuinely goes somewhere useful today.
 function formFourLink(t){
-  return `https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&company=${encodeURIComponent(t.company)}&type=4&dateb=&owner=include&count=40`;
+  return t.sourceUrl || "#";
 }
 
 function buildFilterRow(){
@@ -538,8 +510,7 @@ function buildFilterRow(){
       chip.dataset.cat = key;
       chip.innerHTML = `<span class="dot" style="background:${meta.color}"></span>${meta.label}`;
       chip.addEventListener('click', () => {
-        if(state.activeCategory === key) state.activeCategory = null;
-        else state.activeCategory = key;
+        state.activeCategory = (state.activeCategory === key) ? null : key;
         render();
       });
       groupWrap.appendChild(chip);
@@ -581,7 +552,7 @@ function buildFacetRow(){
 
   const bind = (id, stateKey) => {
     const el = document.getElementById(id);
-    el.addEventListener('change', () => { state[stateKey] = el.value; el.classList.toggle('is-set', !!el.value); render(); });
+    el.onchange = () => { state[stateKey] = el.value; el.classList.toggle('is-set', !!el.value); render(); };
   };
   bind('companyFilter','company'); bind('ceoFilter','ceo'); bind('sectorFilter','sector');
   bind('yearFilter','year'); bind('planFilter','plan'); bind('valueFilter','valueBand'); bind('holdingsFilter','holdingsBand');
@@ -612,12 +583,13 @@ function getFiltered(){
     list = list.filter(t =>
       t.title.toLowerCase().includes(q) || t.summary.toLowerCase().includes(q) ||
       t.ceo.toLowerCase().includes(q) || t.company.toLowerCase().includes(q) ||
-      t.ticker.toLowerCase().includes(q) || t.tags.some(tag => tag.toLowerCase().includes(q))
+      t.ticker.toLowerCase().includes(q) || t.tags.some(tag => String(tag).toLowerCase().includes(q))
     );
   }
+
   if(state.sort === "latest") list.sort((a,b) => new Date(b.transactionDate) - new Date(a.transactionDate));
   else if(state.sort === "largest") list.sort((a,b) => b.value - a.value);
-  else if(state.sort === "viewed") list.sort((a,b) => state.votes[b.id] - state.votes[a.id]);
+  else if(state.sort === "viewed") list.sort((a,b) => (state.votes[b.id]||0) - (state.votes[a.id]||0));
   else if(state.sort === "performance"){
     list.sort((a,b) => {
       const pa = getPerfForPeriod(a, state.perfPeriod);
@@ -632,23 +604,23 @@ function getFiltered(){
 }
 
 function cardTemplate(t){
-  const meta = CATEGORY_META[t.tradeType];
+  const meta = CATEGORY_META[t.tradeType] || CATEGORY_META.sell;
   const voted = state.voted.has(t.id);
   const activePeriod = state.sort === "performance" ? state.perfPeriod : "sinceTrade";
   const perfInfo = getPerfForPeriod(t, activePeriod);
   const perfClass = !perfInfo.available ? '' : (perfInfo.changePct > 0 ? 'pos' : (perfInfo.changePct < 0 ? 'neg' : ''));
   const perfSign = perfInfo.available && perfInfo.changePct > 0 ? '+' : '';
   const perfLabel = activePeriod === "sinceTrade" ? `${perfInfo.days}d Since Trade` : perfInfo.label;
-  const perfValue = perfInfo.available ? `${perfSign}${perfInfo.changePct.toFixed(1)}%` : NOT_REPORTED;
+  const perfValue = perfInfo.available ? `${perfSign}${Number(perfInfo.changePct).toFixed(1)}%` : NOT_REPORTED;
   const holdSign = t.pctHoldingsChange > 0 ? '+' : '';
-  const priceDisplay = t.tradeType === "award" ? NOT_REPORTED : `$${t.price.toFixed(2)}`;
+  const priceDisplay = t.tradeType === "award" ? NOT_REPORTED : `$${Number(t.price).toFixed(2)}`;
   return `
   <article class="trade-card" style="--tab-color:${meta.color}">
     <div class="vote-col">
       <button class="vote-btn ${voted ? 'voted':''}" data-vote="${t.id}" aria-label="Upvote this trade">
         <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 4l8 9h-5v7H9v-7H4z"/></svg>
       </button>
-      <div class="vote-count">${state.votes[t.id]}</div>
+      <div class="vote-count">${state.votes[t.id] || 0}</div>
     </div>
     <div class="card-body">
       <div class="card-top">
@@ -672,7 +644,7 @@ function cardTemplate(t){
         <div class="stat"><span class="stat-label">Shares</span><span class="stat-value">${t.shares.toLocaleString()}</span></div>
         <div class="stat"><span class="stat-label">Price</span><span class="stat-value">${priceDisplay}</span></div>
         <div class="stat"><span class="stat-label">Value</span><span class="stat-value">${fmtMoney(t.value)}</span></div>
-        <div class="stat"><span class="stat-label">% of Holdings</span><span class="stat-value">${holdSign}${t.pctHoldingsChange.toFixed(1)}%</span></div>
+        <div class="stat"><span class="stat-label">% of Holdings</span><span class="stat-value">${holdSign}${Number(t.pctHoldingsChange).toFixed(1)}%</span></div>
         <div class="stat"><span class="stat-label">${perfLabel}</span><span class="stat-value ${perfClass}">${perfValue}</span></div>
       </div>
 
@@ -686,31 +658,30 @@ function cardTemplate(t){
   </article>`;
 }
 
-/* ============ MODAL: "AI summary" filing detail popup ============ */
-
 const MEANING_BY_TYPE = {
-  buy: "This was an open-market purchase — the CEO used their own money to buy shares, the same way any investor would. Because insiders already tend to hold concentrated stakes, a voluntary buy is relatively rare and is often read as a sign of personal confidence, though it can also simply reflect routine portfolio rebalancing.",
-  sell: "This was an open-market sale — the CEO sold shares they already owned. Executives regularly sell for reasons that have nothing to do with a company's prospects, like paying taxes on prior stock awards, funding a large purchase, or diversifying a concentrated position.",
-  award: "This was a stock award or grant, typically restricted stock units (RSUs) vesting as scheduled compensation. No cash changed hands and no market decision was made by the executive — it's simply pay arriving in the form of shares rather than salary.",
-  option: "This was an option exercise — the CEO converted previously granted stock options into actual shares, often selling some or all of them immediately afterward to cover the exercise cost and taxes. This is usually tied to an options grant's expiration schedule rather than a fresh market view.",
+  buy: "This was an open-market purchase — the CEO used their own money to buy shares.",
+  sell: "This was an open-market sale — executives often sell for routine reasons like taxes or diversification.",
+  award: "This was a stock award/grant as compensation, not a discretionary market buy/sell.",
+  option: "This was an option exercise — converting granted options into shares.",
 };
 
 function planMeaning(t){
   return t.tenB51
-    ? "This transaction was carried out under a 10b5-1 trading plan — a schedule the executive set up in advance, often months earlier, specifying when and how much to trade. Plans like this are designed to remove any question about trading on non-public information, since the schedule was locked in before the executive could have known what today's news would be."
-    : "This was a discretionary transaction — the executive (or their broker) chose the timing directly, rather than following a pre-set plan. Discretionary trades draw more scrutiny than scheduled ones since the timing is a live choice, though they are entirely routine and legal when properly disclosed.";
+    ? "This transaction was carried out under a pre-scheduled 10b5-1 trading plan."
+    : "This was a discretionary transaction not marked as a pre-scheduled 10b5-1 plan.";
 }
 
 function buildSparkSVG(t){
   const since = getPerfForPeriod(t, "sinceTrade");
-  const start = t.price;
-  const end = t.price * (1 + since.changePct/100);
+  const perf = Number(since.changePct || 0);
+  const start = Number(t.price || 0);
+  const end = start * (1 + perf/100);
   const n = 9;
   const pts = [];
   for(let i=0;i<=n;i++){
     const frac = i/n;
     const base = start + (end-start)*frac;
-    const wiggle = (i===0 || i===n) ? 0 : Math.sin((t.id+1)*(i+1)*1.7) * (Math.abs(end-start)*0.18 + start*0.006);
+    const wiggle = (i===0 || i===n) ? 0 : Math.sin((i+1)*1.7) * (Math.abs(end-start)*0.18 + Math.max(start, 1)*0.006);
     pts.push(base + wiggle);
   }
   const min = Math.min(...pts), max = Math.max(...pts);
@@ -721,7 +692,7 @@ function buildSparkSVG(t){
     const y = h - pad - ((v - min)/range) * (h - pad*2);
     return [x,y];
   });
-  const lineColor = since.changePct >= 0 ? 'var(--pos)' : 'var(--neg)';
+  const lineColor = perf >= 0 ? 'var(--pos)' : 'var(--neg)';
   const polyline = coords.map(c => c.join(',')).join(' ');
   const areaPts = `${pad},${h-pad} ` + polyline + ` ${w-pad},${h-pad}`;
   const [x0,y0] = coords[0];
@@ -737,32 +708,25 @@ function buildSparkSVG(t){
 
 function tradeSummarySentence(t){
   const value = fmtMoney(t.value);
-  const price = "$" + t.price.toFixed(2);
-  const shares = t.shares.toLocaleString();
-  const after = t.sharesOwnedAfter.toLocaleString();
-  if(t.tradeType === "sell"){
-    return `${t.ceo} sold ${shares} shares for approximately ${value} at an average price of ${price} per share; the filing reports total holdings of ${after} shares following the transaction.`;
-  }
-  if(t.tradeType === "buy"){
-    return `${t.ceo} bought ${shares} shares for approximately ${value} at an average price of ${price} per share; the filing reports total holdings of ${after} shares following the transaction.`;
-  }
-  if(t.tradeType === "award"){
-    return `${t.ceo} received an award of ${shares} shares valued at approximately ${value}. No cash changed hands and no per-share price is reported for this kind of transaction — the filing reports total holdings of ${after} shares following the award.`;
-  }
-  return `${t.ceo} exercised options for ${shares} shares, valued at approximately ${value} at the time of exercise; the filing reports total holdings of ${after} shares following the transaction.`;
+  const price = "$" + Number(t.price || 0).toFixed(2);
+  const shares = Number(t.shares || 0).toLocaleString();
+  const after = Number(t.sharesOwnedAfter || 0).toLocaleString();
+  if(t.tradeType === "sell") return `${t.ceo} sold ${shares} shares for approximately ${value} at an average price of ${price}; holdings after: ${after} shares.`;
+  if(t.tradeType === "buy") return `${t.ceo} bought ${shares} shares for approximately ${value} at an average price of ${price}; holdings after: ${after} shares.`;
+  if(t.tradeType === "award") return `${t.ceo} received an award of ${shares} shares valued at approximately ${value}; holdings after: ${after} shares.`;
+  return `${t.ceo} exercised options for ${shares} shares valued at approximately ${value}; holdings after: ${after} shares.`;
 }
 
 function perfSentence(t){
   const since = getPerfForPeriod(t, "sinceTrade");
-  const perf = since.changePct;
-  const start = t.price;
-  const end = t.price * (1 + perf/100);
-  const dir = perf > 0 ? "up" : (perf < 0 ? "down" : "flat");
-  const verb = perf > 0 ? "rising" : (perf < 0 ? "falling" : "holding steady");
+  const perf = Number(since.changePct || 0);
+  const start = Number(t.price || 0);
+  const end = start * (1 + perf/100);
   if(perf === 0){
-    return `${t.company}'s stock has held steady at $${start.toFixed(2)} since the transaction date, over the ${since.days} days that followed.`;
+    return `${t.company}'s stock has been roughly flat since the trade date over ${since.days} days.`;
   }
-  return `${t.company}'s stock is ${dir} ${Math.abs(perf).toFixed(1)}% since the transaction date, ${verb} from $${start.toFixed(2)} to $${end.toFixed(2)} over ${since.days} days.`;
+  const dir = perf > 0 ? "up" : "down";
+  return `${t.company}'s stock is ${dir} ${Math.abs(perf).toFixed(1)}% since the trade date, moving from $${start.toFixed(2)} to about $${end.toFixed(2)} over ${since.days} days.`;
 }
 
 function txnTableHTML(t){
@@ -771,27 +735,26 @@ function txnTableHTML(t){
     <tr>
       <td>${fmtDate(t.transactionDate)}</td>
       <td>${t.tradeTypeLabel}</td>
-      <td>${l.shares.toLocaleString()}</td>
-      <td>${isAward ? NOT_REPORTED : "$" + l.price.toFixed(2)}</td>
-      <td>${fmtMoney(l.value)}</td>
+      <td>${Number(l.shares || 0).toLocaleString()}</td>
+      <td>${isAward ? NOT_REPORTED : "$" + Number(l.price || 0).toFixed(2)}</td>
+      <td>${fmtMoney(Number(l.value || 0))}</td>
     </tr>`).join('');
   return `
     <table class="txn-table">
       <thead><tr><th>Date</th><th>Type</th><th>Shares</th><th>Price</th><th>Value</th></tr></thead>
       <tbody>${rows}</tbody>
-      <tfoot><tr><td colspan="2">Total</td><td>${t.shares.toLocaleString()}</td><td>${isAward ? NOT_REPORTED : "avg $" + t.price.toFixed(2)}</td><td>${fmtMoney(t.value)}</td></tr></tfoot>
+      <tfoot><tr><td colspan="2">Total</td><td>${Number(t.shares || 0).toLocaleString()}</td><td>${isAward ? NOT_REPORTED : "avg $" + Number(t.price || 0).toFixed(2)}</td><td>${fmtMoney(Number(t.value || 0))}</td></tr></tfoot>
     </table>`;
 }
 
 function modalTemplate(t){
-  const meta = CATEGORY_META[t.tradeType];
   const since = getPerfForPeriod(t, "sinceTrade");
-  const perf = since.changePct;
+  const perf = Number(since.changePct || 0);
   const perfClass = perf > 0 ? 'pos' : (perf < 0 ? 'neg' : '');
   const perfSign = perf > 0 ? '+' : '';
-  const startPrice = t.price;
-  const endPrice = t.price * (1 + perf/100);
-  const priceDisplay = t.tradeType === "award" ? NOT_REPORTED : `$${t.price.toFixed(2)}`;
+  const startPrice = Number(t.price || 0);
+  const endPrice = startPrice * (1 + perf/100);
+  const priceDisplay = t.tradeType === "award" ? NOT_REPORTED : `$${startPrice.toFixed(2)}`;
 
   return `
     <div class="modal-header">
@@ -807,16 +770,12 @@ function modalTemplate(t){
         <h4>Trade Summary</h4>
         <p class="plain-sentence">${tradeSummarySentence(t)}</p>
         <div class="stat-grid">
-          <div class="stat"><span class="stat-label">Shares</span><span class="stat-value">${t.shares.toLocaleString()}</span></div>
+          <div class="stat"><span class="stat-label">Shares</span><span class="stat-value">${Number(t.shares || 0).toLocaleString()}</span></div>
           <div class="stat"><span class="stat-label">Avg. Price</span><span class="stat-value">${priceDisplay}</span></div>
-          <div class="stat"><span class="stat-label">Total Value</span><span class="stat-value">${fmtMoney(t.value)}</span></div>
+          <div class="stat"><span class="stat-label">Total Value</span><span class="stat-value">${fmtMoney(Number(t.value || 0))}</span></div>
           <div class="stat"><span class="stat-label">Transaction Date</span><span class="stat-value">${fmtDate(t.transactionDate)}</span></div>
           <div class="stat"><span class="stat-label">Filed Date</span><span class="stat-value">${fmtDate(t.filedDate)}</span></div>
-          <div class="stat">
-            <span class="stat-label">Holdings After</span>
-            <span class="stat-value">${t.sharesOwnedAfter.toLocaleString()} sh</span>
-            <span class="stat-caption">Shares the CEO owned after the trade</span>
-          </div>
+          <div class="stat"><span class="stat-label">Holdings After</span><span class="stat-value">${Number(t.sharesOwnedAfter || 0).toLocaleString()} sh</span></div>
         </div>
       </div>
 
@@ -828,7 +787,7 @@ function modalTemplate(t){
 
       <div class="modal-section">
         <h4>What does this mean?</h4>
-        <p>${MEANING_BY_TYPE[t.tradeType]}</p>
+        <p>${MEANING_BY_TYPE[t.tradeType] || MEANING_BY_TYPE.sell}</p>
         <p style="margin-top:10px;">${planMeaning(t)}</p>
         <p style="margin-top:10px;">${t.summary}</p>
       </div>
@@ -846,9 +805,9 @@ function modalTemplate(t){
         </div>
       </div>
     </div>
-    <div class="modal-disclaimer">Trade summaries on this page are simplified for readability and are not a substitute for the full Form 4 filing. Post-trade performance reflects broad market movement after the trade date and is not investment advice.</div>
+    <div class="modal-disclaimer">Trade summaries are simplified for readability and are not investment advice. Review the full Form 4 filing for official details.</div>
     <div class="modal-footer">
-      <span class="hint">Arbitrary link until the EDGAR API is wired up</span>
+      <span class="hint">Source link from SEC filing</span>
       <a class="btn-secondary" href="${formFourLink(t)}" target="_blank" rel="noopener noreferrer" style="text-decoration:none; display:inline-block;">FORM 4 LINK ↗</a>
     </div>`;
 }
@@ -860,15 +819,12 @@ function openModal(id){
   document.getElementById('modalOverlay').classList.add('open');
   document.getElementById('modalCloseBtn').addEventListener('click', closeModal);
 }
-function closeModal(){
-  document.getElementById('modalOverlay').classList.remove('open');
-}
+function closeModal(){ document.getElementById('modalOverlay').classList.remove('open'); }
+
 document.getElementById('modalOverlay').addEventListener('click', (e) => {
   if(e.target.id === 'modalOverlay') closeModal();
 });
-document.addEventListener('keydown', (e) => {
-  if(e.key === 'Escape') closeModal();
-});
+document.addEventListener('keydown', (e) => { if(e.key === 'Escape') closeModal(); });
 
 function render(){
   document.querySelectorAll('.chip[data-cat]').forEach(chip => {
@@ -888,15 +844,15 @@ function render(){
 
   feed.querySelectorAll('[data-vote]').forEach(btn => {
     btn.addEventListener('click', () => {
-      const id = Number(btn.dataset.vote);
-      if(state.voted.has(id)){ state.voted.delete(id); state.votes[id] -= 1; }
-      else { state.voted.add(id); state.votes[id] += 1; }
+      const id = btn.dataset.vote; // FIXED: string id
+      if(state.voted.has(id)){ state.voted.delete(id); state.votes[id] = (state.votes[id] || 0) - 1; }
+      else { state.voted.add(id); state.votes[id] = (state.votes[id] || 0) + 1; }
       render();
     });
   });
 
   feed.querySelectorAll('[data-modal]').forEach(btn => {
-    btn.addEventListener('click', () => openModal(Number(btn.dataset.modal)));
+    btn.addEventListener('click', () => openModal(btn.dataset.modal)); // FIXED: string id
   });
 }
 
@@ -921,7 +877,7 @@ document.getElementById('searchInput').addEventListener('input', (e) => {
 
 buildFilterRow();
 loadTradesFromApi();
-setInterval(loadTradesFromApi, 5 * 60 * 1000); // refresh every 5 minutes
+setInterval(loadTradesFromApi, 5 * 60 * 1000);
 </script>
 </body>
 </html>
