@@ -8,13 +8,15 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: "Missing HERMAI_API_KEY" });
     }
 
-    // Query params (optional): ?start_date=2026-07-01&end_date=2026-07-07&role=ceo&limit=10&offset=0
     const q = req.query || {};
     const role = (q.role || "ceo").toString().toLowerCase() === "all" ? "all" : "ceo";
     const limit = Math.max(1, Math.min(25, Number(q.limit || 10)));
-    const offset = Math.max(0, Number(q.offset || 0));
+    const initialOffset = Math.max(0, Number(q.offset || 0));
 
-    // Default to last 7 days if dates not provided
+    // Safety/cost controls
+    const MAX_PAGES = Math.max(1, Math.min(5, Number(q.max_pages || 3))); // default 3 pages
+    const MAX_AI_SUMMARIES = Math.max(1, Math.min(25, Number(q.max_ai || 12)));
+
     const now = new Date();
     const end = q.end_date ? new Date(String(q.end_date)) : now;
     const start = q.start_date
@@ -31,7 +33,6 @@ export default async function handler(req, res) {
     const start_date = fmt(start);
     const end_date = fmt(end);
 
-    // HermAI requires <= 31 day window
     const dayMs = 24 * 60 * 60 * 1000;
     const windowDays = Math.floor((new Date(end_date) - new Date(start_date)) / dayMs) + 1;
     if (windowDays < 1 || windowDays > 31) {
@@ -40,37 +41,33 @@ export default async function handler(req, res) {
       });
     }
 
-    const hermRes = await fetch("https://api.hermai.ai/v1/fetch", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${hermaiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        site: "data.sec.gov",
-        endpoint: "list_form4_transactions",
-        params: {
-          start_date,
-          end_date,
-          role,
-          include_amendments: false,
-          offset,
-          limit,
+    async function fetchHermPage(offset) {
+      const r = await fetch("https://api.hermai.ai/v1/fetch", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${hermaiKey}`,
+          "Content-Type": "application/json",
         },
-      }),
-    });
-
-    if (!hermRes.ok) {
-      const detail = await hermRes.text();
-      return res.status(502).json({
-        error: `HermAI request failed (${hermRes.status})`,
-        detail,
+        body: JSON.stringify({
+          site: "data.sec.gov",
+          endpoint: "list_form4_transactions",
+          params: {
+            start_date,
+            end_date,
+            role,
+            include_amendments: false,
+            offset,
+            limit,
+          },
+        }),
       });
-    }
 
-    const herm = await hermRes.json();
-    const filings = Array.isArray(herm?.data?.filings) ? herm.data.filings : [];
-    const pagination = herm?.data?.pagination || { has_more: false, next_offset: null };
+      if (!r.ok) {
+        const detail = await r.text();
+        throw new Error(`HermAI request failed (${r.status}): ${detail}`);
+      }
+      return r.json();
+    }
 
     function toTradeTypeLabel(t) {
       const s = String(t || "").toLowerCase();
@@ -182,9 +179,37 @@ ${JSON.stringify(input)}
       }
     }
 
-    // Flatten filings -> transaction rows (your UI expects trade cards)
+    // ---- Pagination fetch loop ----
+    const allFilings = [];
+    let pageCount = 0;
+    let currentOffset = initialOffset;
+    let hasMore = true;
+    let lastMeta = null;
+    let lastPagination = null;
+
+    while (hasMore && pageCount < MAX_PAGES) {
+      const page = await fetchHermPage(currentOffset);
+      lastMeta = page?.meta || null;
+
+      const filings = Array.isArray(page?.data?.filings) ? page.data.filings : [];
+      const pagination = page?.data?.pagination || {};
+      lastPagination = pagination;
+
+      allFilings.push(...filings);
+
+      hasMore = Boolean(pagination?.has_more);
+      currentOffset =
+        typeof pagination?.next_offset === "number"
+          ? pagination.next_offset
+          : currentOffset + limit;
+
+      pageCount += 1;
+      if (!hasMore) break;
+    }
+
+    // Flatten filings -> trade rows
     const rawTrades = [];
-    for (const filing of filings) {
+    for (const filing of allFilings) {
       const issuer = filing?.issuer || {};
       const owners = Array.isArray(filing?.reporting_owners) ? filing.reporting_owners : [];
       const owner = owners.find((o) => o?.ceo_match) || owners[0] || {};
@@ -198,6 +223,7 @@ ${JSON.stringify(input)}
         const tx = txs[i] || {};
         const tradeType = toTradeType(tx.transaction_type);
         const tradeTypeLabel = toTradeTypeLabel(tx.transaction_type);
+
         rawTrades.push({
           id: `${filing.accession_number || "acc"}-${i}`,
           accessionNumber: filing.accession_number || null,
@@ -235,9 +261,6 @@ ${JSON.stringify(input)}
       }
     }
 
-    // Cost control
-    const MAX_AI_SUMMARIES = 12;
-
     const trades = await Promise.all(
       rawTrades.map(async (t, idx) => {
         if (idx >= MAX_AI_SUMMARIES) {
@@ -248,6 +271,7 @@ ${JSON.stringify(input)}
             tags: fallbackTags(t),
           };
         }
+
         const ai = await generateAiSummary({
           ceo: t.ceo,
           company: t.company,
@@ -264,13 +288,13 @@ ${JSON.stringify(input)}
           ceoMatch: t.ceoMatch,
           ceoMatchConfidence: t.ceoMatchConfidence,
         });
+
         return { ...t, title: ai.title, summary: ai.summary, tags: ai.tags };
       })
     );
 
     trades.sort((a, b) => new Date(b.transactionDate || 0) - new Date(a.transactionDate || 0));
 
-    // Light CDN caching on Vercel edge
     res.setHeader("Cache-Control", "s-maxage=300, stale-while-revalidate=600");
 
     return res.status(200).json({
@@ -280,17 +304,26 @@ ${JSON.stringify(input)}
       aiEnabled: Boolean(openaiKey),
       modelUsed: openaiKey ? model : null,
       hermai: {
-        credits_used: herm?.meta?.credits_used ?? null,
-        credits_remaining: herm?.meta?.credits_remaining ?? null,
-        cached: herm?.meta?.cached ?? null,
-        pagination,
+        credits_used: lastMeta?.credits_used ?? null,
+        credits_remaining: lastMeta?.credits_remaining ?? null,
+        cached: lastMeta?.cached ?? null,
+        pagination: lastPagination,
+        pages_fetched: pageCount,
       },
-      query: { start_date, end_date, role, limit, offset },
+      query: {
+        start_date,
+        end_date,
+        role,
+        limit,
+        initial_offset: initialOffset,
+        max_pages: MAX_PAGES,
+        max_ai: MAX_AI_SUMMARIES,
+      },
     });
   } catch (err) {
     return res.status(500).json({
       error: "Server error",
-      detail: String(err),
+      detail: String(err?.message || err),
     });
   }
 }
