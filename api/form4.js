@@ -13,9 +13,11 @@ export default async function handler(req, res) {
     const limit = Math.max(1, Math.min(25, Number(q.limit || 10)));
     const initialOffset = Math.max(0, Number(q.offset || 0));
 
-    // Safety/cost controls
-    const MAX_PAGES = Math.max(1, Math.min(5, Number(q.max_pages || 3))); // default 3 pages
-    const MAX_AI_SUMMARIES = Math.max(1, Math.min(25, Number(q.max_ai || 12)));
+    // Controls
+    const MAX_PAGES = Math.max(1, Math.min(8, Number(q.max_pages || 3)));
+    const MAX_AI_SUMMARIES = Math.max(1, Math.min(30, Number(q.max_ai || 12)));
+    const MIN_TRADES_TARGET = Math.max(1, Math.min(100, Number(q.min_trades || 10))); // small patch
+    const SKIP_ZERO_ROWS = String(q.skip_zero_rows ?? "true") !== "false";
 
     const now = new Date();
     const end = q.end_date ? new Date(String(q.end_date)) : now;
@@ -69,21 +71,22 @@ export default async function handler(req, res) {
       return r.json();
     }
 
+    // ---- label mapping fix (SEC code + text) ----
     function toTradeTypeLabel(t) {
-      const s = String(t || "").toLowerCase();
-      if (s.includes("buy")) return "Open Market Buy";
-      if (s.includes("sale") || s.includes("sell")) return "Open Market Sell";
-      if (s.includes("option")) return "Option Exercise";
-      if (s.includes("award") || s.includes("grant")) return "Award / Grant";
+      const s = String(t || "").toLowerCase().trim();
+      if (s === "p" || s.includes("purchase") || s.includes("buy")) return "Open Market Buy";
+      if (s === "s" || s.includes("sale") || s.includes("sell")) return "Open Market Sell";
+      if (s === "m" || s.includes("option")) return "Option Exercise";
+      if (s === "a" || s.includes("award") || s.includes("grant")) return "Award / Grant";
       return "Insider Transaction";
     }
 
     function toTradeType(t) {
-      const s = String(t || "").toLowerCase();
-      if (s.includes("buy")) return "buy";
-      if (s.includes("sale") || s.includes("sell")) return "sell";
-      if (s.includes("option")) return "option";
-      if (s.includes("award") || s.includes("grant")) return "award";
+      const s = String(t || "").toLowerCase().trim();
+      if (s === "p" || s.includes("purchase") || s.includes("buy")) return "buy";
+      if (s === "s" || s.includes("sale") || s.includes("sell")) return "sell";
+      if (s === "m" || s.includes("option")) return "option";
+      if (s === "a" || s.includes("award") || s.includes("grant")) return "award";
       return "sell";
     }
 
@@ -179,13 +182,71 @@ ${JSON.stringify(input)}
       }
     }
 
-    // ---- Pagination fetch loop ----
+    function filingToTrades(filing) {
+      const issuer = filing?.issuer || {};
+      const owners = Array.isArray(filing?.reporting_owners) ? filing.reporting_owners : [];
+      const owner = owners.find((o) => o?.ceo_match) || owners[0] || {};
+      const ceoName = owner?.name || "Unknown CEO";
+      const officerTitle = owner?.officer_title || "";
+
+      const foot = (Array.isArray(filing?.footnotes) ? filing.footnotes : []).join(" ").toLowerCase();
+      const tenB51 = foot.includes("10b5-1");
+
+      const txs = Array.isArray(filing?.transactions) ? filing.transactions : [];
+      const out = [];
+
+      for (let i = 0; i < txs.length; i++) {
+        const tx = txs[i] || {};
+        const shares = Number(tx.shares || 0);
+        const price = Number(tx.price_per_share || 0);
+        const value = Number(tx.transaction_value || 0);
+
+        if (SKIP_ZERO_ROWS && shares === 0 && value === 0) continue; // small patch
+
+        const tradeType = toTradeType(tx.transaction_type);
+        const tradeTypeLabel = toTradeTypeLabel(tx.transaction_type);
+
+        out.push({
+          id: `${filing.accession_number || "acc"}-${i}`,
+          accessionNumber: filing.accession_number || null,
+          ceo: ceoName,
+          company: issuer?.name || "Unknown Company",
+          ticker: issuer?.ticker || "N/A",
+          sector: "Unknown",
+          tradeType,
+          tradeTypeLabel,
+          transactionDate: tx.transaction_date || filing.filed_date || null,
+          filedDate: filing.filed_date || tx.transaction_date || null,
+          shares,
+          price,
+          value,
+          pctHoldingsChange: 0,
+          tenB51,
+          perf: { sinceTrade: { changePct: 0 } },
+          upvotes: 0,
+          sharesOwnedAfter: 0,
+          lines: [{ shares, price, value }],
+          title: "",
+          summary: "",
+          tags: [],
+          sourceUrl: filing?.source_url || filing?.source_document_url || "#",
+          officerTitle,
+          ceoMatch: Boolean(owner?.ceo_match),
+          ceoMatchConfidence: owner?.ceo_match_confidence || null,
+        });
+      }
+
+      return out;
+    }
+
+    // ---- pagination with min-trades target patch ----
     const allFilings = [];
     let pageCount = 0;
     let currentOffset = initialOffset;
     let hasMore = true;
     let lastMeta = null;
     let lastPagination = null;
+    let collectedTradesCount = 0;
 
     while (hasMore && pageCount < MAX_PAGES) {
       const page = await fetchHermPage(currentOffset);
@@ -197,6 +258,11 @@ ${JSON.stringify(input)}
 
       allFilings.push(...filings);
 
+      // Estimate collected real trades so far
+      for (const f of filings) {
+        collectedTradesCount += filingToTrades(f).length;
+      }
+
       hasMore = Boolean(pagination?.has_more);
       currentOffset =
         typeof pagination?.next_offset === "number"
@@ -204,61 +270,16 @@ ${JSON.stringify(input)}
           : currentOffset + limit;
 
       pageCount += 1;
+
+      // stop early if we already reached minimum useful feed size
+      if (collectedTradesCount >= MIN_TRADES_TARGET) break;
       if (!hasMore) break;
     }
 
-    // Flatten filings -> trade rows
+    // Flatten once for output
     const rawTrades = [];
     for (const filing of allFilings) {
-      const issuer = filing?.issuer || {};
-      const owners = Array.isArray(filing?.reporting_owners) ? filing.reporting_owners : [];
-      const owner = owners.find((o) => o?.ceo_match) || owners[0] || {};
-      const ceoName = owner?.name || "Unknown CEO";
-      const title = owner?.officer_title || "";
-      const tenB51 =
-        (Array.isArray(filing?.footnotes) ? filing.footnotes : []).join(" ").toLowerCase().includes("10b5-1");
-
-      const txs = Array.isArray(filing?.transactions) ? filing.transactions : [];
-      for (let i = 0; i < txs.length; i++) {
-        const tx = txs[i] || {};
-        const tradeType = toTradeType(tx.transaction_type);
-        const tradeTypeLabel = toTradeTypeLabel(tx.transaction_type);
-
-        rawTrades.push({
-          id: `${filing.accession_number || "acc"}-${i}`,
-          accessionNumber: filing.accession_number || null,
-          ceo: ceoName,
-          company: issuer?.name || "Unknown Company",
-          ticker: issuer?.ticker || "N/A",
-          sector: "Unknown",
-          tradeType,
-          tradeTypeLabel,
-          transactionDate: tx.transaction_date || filing.filed_date || null,
-          filedDate: filing.filed_date || tx.transaction_date || null,
-          shares: Number(tx.shares || 0),
-          price: Number(tx.price_per_share || 0),
-          value: Number(tx.transaction_value || 0),
-          pctHoldingsChange: 0,
-          tenB51,
-          perf: { sinceTrade: { changePct: 0 } },
-          upvotes: 0,
-          sharesOwnedAfter: 0,
-          lines: [
-            {
-              shares: Number(tx.shares || 0),
-              price: Number(tx.price_per_share || 0),
-              value: Number(tx.transaction_value || 0),
-            },
-          ],
-          title: "",
-          summary: "",
-          tags: [],
-          sourceUrl: filing?.source_url || filing?.source_document_url || "#",
-          officerTitle: title,
-          ceoMatch: Boolean(owner?.ceo_match),
-          ceoMatchConfidence: owner?.ceo_match_confidence || null,
-        });
-      }
+      rawTrades.push(...filingToTrades(filing));
     }
 
     const trades = await Promise.all(
@@ -318,6 +339,8 @@ ${JSON.stringify(input)}
         initial_offset: initialOffset,
         max_pages: MAX_PAGES,
         max_ai: MAX_AI_SUMMARIES,
+        min_trades: MIN_TRADES_TARGET,
+        skip_zero_rows: SKIP_ZERO_ROWS,
       },
     });
   } catch (err) {
