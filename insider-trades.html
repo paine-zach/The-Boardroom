@@ -397,6 +397,13 @@
    ========================================================= */
 let TRADES = [];
 
+async function loadTradesFromApi() {
+  const res = await fetch('/api/form4', { cache: 'no-store' });
+  const data = await res.json();
+  TRADES = data.trades || [];
+  render();
+}
+  
 const CATEGORY_META = {
   buy:    {label:"Buy",             color:"var(--tab-buy)",    group:"market"},
   sell:   {label:"Sell",            color:"var(--tab-sell)",   group:"market"},
