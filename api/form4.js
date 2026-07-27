@@ -8,17 +8,56 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: "Missing HERMAI_API_KEY" });
     }
 
-    // 1) Pull filings from HermAI (replace URL with exact HermAI endpoint if needed)
-    const hermaiUrl = process.env.HERMAI_FORM4_URL;
-    if (!hermaiUrl) {
-      return res.status(500).json({ error: "Missing HERMAI_FORM4_URL" });
+    // Query params (optional): ?start_date=2026-07-01&end_date=2026-07-07&role=ceo&limit=10&offset=0
+    const q = req.query || {};
+    const role = (q.role || "ceo").toString().toLowerCase() === "all" ? "all" : "ceo";
+    const limit = Math.max(1, Math.min(25, Number(q.limit || 10)));
+    const offset = Math.max(0, Number(q.offset || 0));
+
+    // Default to last 7 days if dates not provided
+    const now = new Date();
+    const end = q.end_date ? new Date(String(q.end_date)) : now;
+    const start = q.start_date
+      ? new Date(String(q.start_date))
+      : new Date(end.getTime() - 6 * 24 * 60 * 60 * 1000);
+
+    const fmt = (d) => {
+      const yyyy = d.getUTCFullYear();
+      const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
+      const dd = String(d.getUTCDate()).padStart(2, "0");
+      return `${yyyy}-${mm}-${dd}`;
+    };
+
+    const start_date = fmt(start);
+    const end_date = fmt(end);
+
+    // HermAI requires <= 31 day window
+    const dayMs = 24 * 60 * 60 * 1000;
+    const windowDays = Math.floor((new Date(end_date) - new Date(start_date)) / dayMs) + 1;
+    if (windowDays < 1 || windowDays > 31) {
+      return res.status(400).json({
+        error: "Invalid date window. start_date/end_date must be 1-31 days apart.",
+      });
     }
-const hermRes = await fetch(hermaiUrl, {
-      method: "GET",
+
+    const hermRes = await fetch("https://api.hermai.ai/v1/fetch", {
+      method: "POST",
       headers: {
         Authorization: `Bearer ${hermaiKey}`,
         "Content-Type": "application/json",
       },
+      body: JSON.stringify({
+        site: "data.sec.gov",
+        endpoint: "list_form4_transactions",
+        params: {
+          start_date,
+          end_date,
+          role,
+          include_amendments: false,
+          offset,
+          limit,
+        },
+      }),
     });
 
     if (!hermRes.ok) {
@@ -29,14 +68,49 @@ const hermRes = await fetch(hermaiUrl, {
       });
     }
 
-    const raw = await hermRes.json();
-    const items = Array.isArray(raw?.items) ? raw.items : [];
+    const herm = await hermRes.json();
+    const filings = Array.isArray(herm?.data?.filings) ? herm.data.filings : [];
+    const pagination = herm?.data?.pagination || { has_more: false, next_offset: null };
 
-    // Limit AI calls per request to control cost/latency
-    const MAX_AI_SUMMARIES = 12;
+    function toTradeTypeLabel(t) {
+      const s = String(t || "").toLowerCase();
+      if (s.includes("buy")) return "Open Market Buy";
+      if (s.includes("sale") || s.includes("sell")) return "Open Market Sell";
+      if (s.includes("option")) return "Option Exercise";
+      if (s.includes("award") || s.includes("grant")) return "Award / Grant";
+      return "Insider Transaction";
+    }
+
+    function toTradeType(t) {
+      const s = String(t || "").toLowerCase();
+      if (s.includes("buy")) return "buy";
+      if (s.includes("sale") || s.includes("sell")) return "sell";
+      if (s.includes("option")) return "option";
+      if (s.includes("award") || s.includes("grant")) return "award";
+      return "sell";
+    }
+
+    function fallbackSummary(t) {
+      const shares = Number(t.shares || 0).toLocaleString();
+      const value = Number(t.value || 0);
+      const v =
+        value >= 1_000_000
+          ? `$${(value / 1_000_000).toFixed(1)}M`
+          : value >= 1_000
+          ? `$${Math.round(value / 1_000)}K`
+          : `$${value}`;
+      return `${t.ceo} reported a ${String(t.tradeTypeLabel).toLowerCase()} involving ${shares} shares (about ${v}) for ${t.company} (${t.ticker}).`;
+    }
+
+    function fallbackTags(t) {
+      const out = [];
+      out.push(t.tradeType === "buy" ? "open-market-buy" : "open-market-sell");
+      out.push((t.sector || "unknown").toLowerCase().replace(/\s+/g, "-"));
+      if (t.tenB51) out.push("10b5-1");
+      return [...new Set(out)].slice(0, 4);
+    }
 
     async function generateAiSummary(input) {
-      // Fallback if no OpenAI key
       if (!openaiKey) {
         return {
           title: `${input.ceo} — ${input.tradeTypeLabel}`,
@@ -46,21 +120,21 @@ const hermRes = await fetch(hermaiUrl, {
       }
 
       const prompt = `
-You are writing plain-English summaries for SEC Form 4 insider filings.
-Return ONLY valid JSON with keys: title, summary, tags.
+Return ONLY strict JSON with keys: title, summary, tags.
 Rules:
 - Neutral, factual, concise.
-- No investment advice.
-- 1 sentence title, 1-2 sentence summary.
-- tags: array of 2-4 short lowercase tags (kebab-case).
-- Do not invent facts not in input.
+- No financial advice.
+- title: 1 sentence.
+- summary: 1-2 sentences.
+- tags: 2-4 lowercase kebab-case tags.
+- Use only provided facts.
 
-Input JSON:
+Input:
 ${JSON.stringify(input)}
 `;
 
       try {
-        const oaRes = await fetch("https://api.openai.com/v1/chat/completions", {
+        const r = await fetch("https://api.openai.com/v1/chat/completions", {
           method: "POST",
           headers: {
             Authorization: `Bearer ${openaiKey}`,
@@ -71,14 +145,13 @@ ${JSON.stringify(input)}
             temperature: 0.2,
             response_format: { type: "json_object" },
             messages: [
-              { role: "system", content: "You produce strict JSON outputs only." },
+              { role: "system", content: "You output strict JSON only." },
               { role: "user", content: prompt },
             ],
           }),
         });
 
-        if (!oaRes.ok) {
-          // quota/rate/billing/etc => fallback
+        if (!r.ok) {
           return {
             title: `${input.ceo} — ${input.tradeTypeLabel}`,
             summary: fallbackSummary(input),
@@ -86,8 +159,8 @@ ${JSON.stringify(input)}
           };
         }
 
-        const oaJson = await oaRes.json();
-        const content = oaJson?.choices?.[0]?.message?.content || "{}";
+        const j = await r.json();
+        const content = j?.choices?.[0]?.message?.content || "{}";
         let parsed = {};
         try {
           parsed = JSON.parse(content);
@@ -96,18 +169,9 @@ ${JSON.stringify(input)}
         }
 
         return {
-          title:
-            typeof parsed.title === "string" && parsed.title.trim()
-              ? parsed.title.trim()
-              : `${input.ceo} — ${input.tradeTypeLabel}`,
-          summary:
-            typeof parsed.summary === "string" && parsed.summary.trim()
-              ? parsed.summary.trim()
-              : fallbackSummary(input),
-          tags:
-            Array.isArray(parsed.tags) && parsed.tags.length
-              ? parsed.tags.slice(0, 4).map(String)
-              : fallbackTags(input),
+          title: parsed?.title || `${input.ceo} — ${input.tradeTypeLabel}`,
+          summary: parsed?.summary || fallbackSummary(input),
+          tags: Array.isArray(parsed?.tags) && parsed.tags.length ? parsed.tags : fallbackTags(input),
         };
       } catch {
         return {
@@ -118,94 +182,76 @@ ${JSON.stringify(input)}
       }
     }
 
-    function fallbackTags(t) {
-      const tags = [];
-      if (t.tenB51) tags.push("10b5-1");
-      else tags.push("discretionary");
-      tags.push((t.sector || "unknown").toLowerCase().replace(/\s+/g, "-"));
-      tags.push((t.tradeType || "trade").toLowerCase());
-      return [...new Set(tags)].slice(0, 4);
+    // Flatten filings -> transaction rows (your UI expects trade cards)
+    const rawTrades = [];
+    for (const filing of filings) {
+      const issuer = filing?.issuer || {};
+      const owners = Array.isArray(filing?.reporting_owners) ? filing.reporting_owners : [];
+      const owner = owners.find((o) => o?.ceo_match) || owners[0] || {};
+      const ceoName = owner?.name || "Unknown CEO";
+      const title = owner?.officer_title || "";
+      const tenB51 =
+        (Array.isArray(filing?.footnotes) ? filing.footnotes : []).join(" ").toLowerCase().includes("10b5-1");
+
+      const txs = Array.isArray(filing?.transactions) ? filing.transactions : [];
+      for (let i = 0; i < txs.length; i++) {
+        const tx = txs[i] || {};
+        const tradeType = toTradeType(tx.transaction_type);
+        const tradeTypeLabel = toTradeTypeLabel(tx.transaction_type);
+        rawTrades.push({
+          id: `${filing.accession_number || "acc"}-${i}`,
+          accessionNumber: filing.accession_number || null,
+          ceo: ceoName,
+          company: issuer?.name || "Unknown Company",
+          ticker: issuer?.ticker || "N/A",
+          sector: "Unknown",
+          tradeType,
+          tradeTypeLabel,
+          transactionDate: tx.transaction_date || filing.filed_date || null,
+          filedDate: filing.filed_date || tx.transaction_date || null,
+          shares: Number(tx.shares || 0),
+          price: Number(tx.price_per_share || 0),
+          value: Number(tx.transaction_value || 0),
+          pctHoldingsChange: 0,
+          tenB51,
+          perf: { sinceTrade: { changePct: 0 } },
+          upvotes: 0,
+          sharesOwnedAfter: 0,
+          lines: [
+            {
+              shares: Number(tx.shares || 0),
+              price: Number(tx.price_per_share || 0),
+              value: Number(tx.transaction_value || 0),
+            },
+          ],
+          title: "",
+          summary: "",
+          tags: [],
+          sourceUrl: filing?.source_url || filing?.source_document_url || "#",
+          officerTitle: title,
+          ceoMatch: Boolean(owner?.ceo_match),
+          ceoMatchConfidence: owner?.ceo_match_confidence || null,
+        });
+      }
     }
 
-    function fallbackSummary(t) {
-      const value = Number(t.value || 0);
-      const shares = Number(t.shares || 0).toLocaleString();
-      const v =
-        value >= 1_000_000
-          ? `$${(value / 1_000_000).toFixed(1)}M`
-          : value >= 1_000
-          ? `$${Math.round(value / 1_000)}K`
-          : `$${value}`;
-      const planText = t.tenB51
-        ? "The filing indicates this transaction was executed under a 10b5-1 plan."
-        : "This appears to be a discretionary transaction rather than a pre-scheduled 10b5-1 plan.";
-      return `${t.ceo} reported a ${String(t.tradeTypeLabel || "Form 4 transaction").toLowerCase()} involving ${shares} shares (about ${v}). ${planText}`;
-    }
+    // Cost control
+    const MAX_AI_SUMMARIES = 12;
 
-    // 2) Map base data first
-    const baseTrades = items.map((x, i) => {
-      const tradeTypeRaw = (x.trade_type || "sell").toLowerCase();
-      const tradeType =
-        tradeTypeRaw === "buy" || tradeTypeRaw === "sell" || tradeTypeRaw === "award" || tradeTypeRaw === "option"
-          ? tradeTypeRaw
-          : "sell";
-
-      const tradeTypeLabelMap = {
-        buy: "Open Market Buy",
-        sell: "Open Market Sell",
-        award: "Award / Grant",
-        option: "Option Exercise",
-      };
-
-      const tradeTypeLabel = x.trade_type_label || tradeTypeLabelMap[tradeType];
-
-      return {
-        id: x.id ?? `${x.accession_number ?? "filing"}-${i}`,
-        ceo: x.ceo_name ?? x.ceo ?? "Unknown CEO",
-        company: x.company_name ?? x.company ?? "Unknown Company",
-        ticker: x.ticker ?? "N/A",
-        sector: x.sector ?? "Unknown",
-        tradeType,
-        tradeTypeLabel,
-        transactionDate: x.transaction_date ?? "2026-01-01",
-        filedDate: x.filed_date ?? x.transaction_date ?? "2026-01-01",
-        shares: Number(x.shares ?? 0),
-        price: Number(x.price ?? 0),
-        value: Number(x.value ?? 0),
-        pctHoldingsChange: Number(x.pct_holdings_change ?? 0),
-        tenB51: Boolean(x.tenb51),
-        perf: x.perf ?? { sinceTrade: { changePct: 0 } },
-        upvotes: 0,
-        sharesOwnedAfter: Number(x.shares_owned_after ?? 0),
-        lines: Array.isArray(x.lines)
-          ? x.lines
-          : [{ shares: Number(x.shares ?? 0), price: Number(x.price ?? 0), value: Number(x.value ?? 0) }],
-        title: x.title || "",
-        summary: x.summary || "",
-        tags: Array.isArray(x.tags) ? x.tags : [],
-        sourceUrl: x.source_url ?? "#",
-      };
-    });
-
-    // 3) AI-enrich first N trades (cost control)
-    const enriched = await Promise.all(
-      baseTrades.map(async (t, idx) => {
-        if (t.title && t.summary) return t; // keep provided summary
+    const trades = await Promise.all(
+      rawTrades.map(async (t, idx) => {
         if (idx >= MAX_AI_SUMMARIES) {
-          // fallback for remainder to save tokens
           return {
             ...t,
-            title: t.title || `${t.ceo} — ${t.tradeTypeLabel}`,
-            summary: t.summary || fallbackSummary(t),
-            tags: t.tags.length ? t.tags : fallbackTags(t),
+            title: `${t.ceo} — ${t.tradeTypeLabel}`,
+            summary: fallbackSummary(t),
+            tags: fallbackTags(t),
           };
         }
-
         const ai = await generateAiSummary({
           ceo: t.ceo,
           company: t.company,
           ticker: t.ticker,
-          sector: t.sector,
           tradeType: t.tradeType,
           tradeTypeLabel: t.tradeTypeLabel,
           transactionDate: t.transactionDate,
@@ -213,29 +259,33 @@ ${JSON.stringify(input)}
           shares: t.shares,
           price: t.price,
           value: t.value,
-          pctHoldingsChange: t.pctHoldingsChange,
           tenB51: t.tenB51,
-          sharesOwnedAfter: t.sharesOwnedAfter,
+          officerTitle: t.officerTitle,
+          ceoMatch: t.ceoMatch,
+          ceoMatchConfidence: t.ceoMatchConfidence,
         });
-
-        return {
-          ...t,
-          title: t.title || ai.title,
-          summary: t.summary || ai.summary,
-          tags: t.tags.length ? t.tags : ai.tags,
-        };
+        return { ...t, title: ai.title, summary: ai.summary, tags: ai.tags };
       })
     );
 
-    // newest first
-    enriched.sort((a, b) => new Date(b.transactionDate) - new Date(a.transactionDate));
+    trades.sort((a, b) => new Date(b.transactionDate || 0) - new Date(a.transactionDate || 0));
+
+    // Light CDN caching on Vercel edge
+    res.setHeader("Cache-Control", "s-maxage=300, stale-while-revalidate=600");
 
     return res.status(200).json({
-      trades: enriched,
-      count: enriched.length,
+      trades,
+      count: trades.length,
       fetchedAt: new Date().toISOString(),
       aiEnabled: Boolean(openaiKey),
       modelUsed: openaiKey ? model : null,
+      hermai: {
+        credits_used: herm?.meta?.credits_used ?? null,
+        credits_remaining: herm?.meta?.credits_remaining ?? null,
+        cached: herm?.meta?.cached ?? null,
+        pagination,
+      },
+      query: { start_date, end_date, role, limit, offset },
     });
   } catch (err) {
     return res.status(500).json({
