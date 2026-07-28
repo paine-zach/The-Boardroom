@@ -102,14 +102,44 @@
   .chip.active{ background:var(--ink); color:var(--paper); border-color:var(--ink); }
   .chip.clear{ color:var(--accent-ink); border-color:var(--accent); }
 
-  .facet-row{ max-width:1220px; margin:0 auto; padding:10px 24px 0; display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
-  .facet-row .facet-label{ font-family:'IBM Plex Mono', monospace; font-size:11px; letter-spacing:0.1em; text-transform:uppercase; color:var(--ink-soft); margin-right:2px; }
+  .facet-row{
+    max-width:1220px;
+    margin:0 auto;
+    padding:10px 24px 0;
+    display:flex;
+    flex-wrap:wrap;
+    gap:8px;
+    align-items:center;
+  }
+  .facet-row .facet-label{
+    flex:0 0 auto;
+    font-family:'IBM Plex Mono', monospace;
+    font-size:11px;
+    letter-spacing:0.1em;
+    text-transform:uppercase;
+    color:var(--ink-soft);
+    margin-right:2px;
+  }
   .facet-row select{
-    font-family:'IBM Plex Mono', monospace; font-size:12px; letter-spacing:0.02em; color:var(--ink);
-    background:var(--card); border:1px solid var(--line); border-radius:var(--radius);
-    padding:6px 28px 6px 10px; cursor:pointer; appearance:none; -webkit-appearance:none;
+    flex:0 1 auto;
+    width:auto;
+    min-width:0;
+    max-width:min(320px, 100%);
+    font-family:'IBM Plex Mono', monospace;
+    font-size:12px;
+    letter-spacing:0.02em;
+    color:var(--ink);
+    background:var(--card);
+    border:1px solid var(--line);
+    border-radius:var(--radius);
+    padding:6px 28px 6px 10px;
+    cursor:pointer;
+    appearance:none;
+    -webkit-appearance:none;
     background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2348587A' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
-    background-repeat:no-repeat; background-position:right 8px center; background-size:13px;
+    background-repeat:no-repeat;
+    background-position:right 8px center;
+    background-size:13px;
   }
   .facet-row select:focus{ outline:none; border-color:var(--navy); }
   .facet-row select.is-set{ border-color:var(--navy); color:var(--navy); font-weight:600; background-color:#EEF2FA; }
@@ -552,7 +582,7 @@
     </div>
     <div class="toolbar-actions">
       <button class="show-all-toggle" id="showAllToggle" type="button">Show all trades</button>
-      <div class="result-count" id="resultCount">— total trades</div>
+      <div class="result-count" id="resultCount">— trades</div>
     </div>
   </div>
 
@@ -1583,6 +1613,81 @@ function buildFilterRow() {
   row.appendChild(clear);
 }
 
+function sizeSelectToSelectedOption(element) {
+  if (!element) {
+    return;
+  }
+
+  const selectedOption =
+    element.options[
+      element.selectedIndex
+    ];
+
+  const label =
+    selectedOption?.textContent || "";
+
+  const measurement =
+    document.createElement("span");
+
+  measurement.setAttribute(
+    "aria-hidden",
+    "true"
+  );
+
+  measurement.style.position =
+    "absolute";
+  measurement.style.visibility =
+    "hidden";
+  measurement.style.whiteSpace =
+    "pre";
+  measurement.style.pointerEvents =
+    "none";
+
+  const computed =
+    window.getComputedStyle(element);
+
+  measurement.style.fontFamily =
+    computed.fontFamily;
+  measurement.style.fontSize =
+    computed.fontSize;
+  measurement.style.fontWeight =
+    computed.fontWeight;
+  measurement.style.letterSpacing =
+    computed.letterSpacing;
+
+  measurement.textContent = label;
+  document.body.appendChild(
+    measurement
+  );
+
+  const textWidth =
+    measurement.getBoundingClientRect()
+      .width;
+
+  measurement.remove();
+
+  // Text width plus left padding, the arrow area,
+  // borders, and a small amount of whitespace.
+  const desiredWidth =
+    Math.ceil(textWidth + 50);
+
+  element.style.width =
+    `${Math.min(
+      320,
+      Math.max(108, desiredWidth)
+    )}px`;
+}
+
+function sizeAllFacetSelects() {
+  document
+    .querySelectorAll(
+      "#facetRow select"
+    )
+    .forEach(
+      sizeSelectToSelectedOption
+    );
+}
+
 function buildFacetRow() {
   const companies = [
     ...new Set(
@@ -1691,6 +1796,10 @@ function buildFacetRow() {
       Boolean(element.value)
     );
 
+    sizeSelectToSelectedOption(
+      element
+    );
+
     element.onchange = () => {
       state[stateKey] =
         element.value;
@@ -1698,6 +1807,10 @@ function buildFacetRow() {
       element.classList.toggle(
         "is-set",
         Boolean(element.value)
+      );
+
+      sizeSelectToSelectedOption(
+        element
       );
 
       state.visibleCount =
@@ -1753,6 +1866,10 @@ function resetFacets() {
     element.value = "";
     element.classList.remove(
       "is-set"
+    );
+
+    sizeSelectToSelectedOption(
+      element
     );
   });
 }
@@ -2415,10 +2532,16 @@ function render() {
       TRADES.length
     );
 
+  const matchingCount =
+    list.length;
+
   document.getElementById(
     "resultCount"
   ).textContent =
-    `${totalCount.toLocaleString("en-US")} total trade${totalCount === 1 ? "" : "s"}`;
+    state.loading &&
+    !state.allLoaded
+      ? `${matchingCount.toLocaleString("en-US")} matching trade${matchingCount === 1 ? "" : "s"} loaded…`
+      : `${matchingCount.toLocaleString("en-US")} trade${matchingCount === 1 ? "" : "s"}`;
 
   const pagination =
     document.getElementById(
@@ -2728,6 +2851,19 @@ function setupScrollControls() {
   );
 
   update();
+}
+
+window.addEventListener(
+  "resize",
+  () => {
+    sizeAllFacetSelects();
+  }
+);
+
+if (document.fonts?.ready) {
+  document.fonts.ready.then(
+    sizeAllFacetSelects
+  );
 }
 
 buildFilterRow();
