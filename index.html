@@ -272,6 +272,130 @@
   .disclaimer-banner p{
     max-width:1220px; margin:0; font-size:12px; line-height:1.55; color:var(--accent-ink);
   }
+
+
+  .toolbar-actions{
+    display:flex;
+    align-items:center;
+    gap:12px;
+    flex-wrap:wrap;
+  }
+
+  .show-all-toggle{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:11px;
+    letter-spacing:0.04em;
+    text-transform:uppercase;
+    border:1px solid var(--line);
+    background:var(--card);
+    color:var(--ink-soft);
+    padding:7px 12px;
+    border-radius:var(--radius);
+    cursor:pointer;
+  }
+
+  .show-all-toggle:hover,
+  .show-all-toggle.active{
+    border-color:var(--navy);
+    color:var(--navy);
+    background:#EEF2FA;
+  }
+
+  .show-all-toggle:disabled{
+    cursor:wait;
+    opacity:0.65;
+  }
+
+  .new-badge{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:10.5px;
+    letter-spacing:0.05em;
+    text-transform:uppercase;
+    padding:3px 9px;
+    border-radius:12px;
+    border:1px solid var(--accent);
+    color:var(--accent-ink);
+    background:#F5EBD3;
+  }
+
+  .ownership-badge{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:10.5px;
+    padding:3px 9px;
+    border-radius:12px;
+    border:1px solid var(--line-soft);
+    color:var(--ink-soft);
+    background:var(--paper);
+  }
+
+  .transaction-details{
+    margin:10px 0 2px;
+    border:1px solid var(--line-soft);
+    border-radius:3px;
+    background:var(--paper);
+  }
+
+  .transaction-details summary{
+    cursor:pointer;
+    list-style:none;
+    padding:8px 11px;
+    font-family:'IBM Plex Mono', monospace;
+    font-size:11px;
+    font-weight:600;
+    color:var(--accent-ink);
+  }
+
+  .transaction-details summary::-webkit-details-marker{
+    display:none;
+  }
+
+  .transaction-details summary::after{
+    content:'+';
+    float:right;
+    color:var(--ink-soft);
+  }
+
+  .transaction-details[open] summary::after{
+    content:'−';
+  }
+
+  .transaction-line-list{
+    border-top:1px solid var(--line-soft);
+  }
+
+  .transaction-line{
+    display:grid;
+    grid-template-columns:minmax(92px, 0.9fr) minmax(90px, 0.9fr) minmax(80px, 0.8fr) minmax(80px, 0.8fr);
+    gap:10px;
+    padding:8px 11px;
+    border-bottom:1px solid var(--line-soft);
+    font-family:'IBM Plex Mono', monospace;
+    font-size:11px;
+    color:var(--ink-soft);
+  }
+
+  .transaction-line:last-child{
+    border-bottom:none;
+  }
+
+  .transaction-line strong{
+    color:var(--ink);
+    font-weight:600;
+  }
+
+  .calculation-note{
+    margin:8px 0 0;
+    font-size:11.5px;
+    line-height:1.5;
+    color:var(--ink-soft);
+  }
+
+  @media (max-width: 620px){
+    .transaction-line{
+      grid-template-columns:1fr 1fr;
+    }
+  }
+
 </style>
 </head>
 <body>
@@ -304,20 +428,11 @@
   <div class="sort-tabs" id="sortTabs">
     <button data-sort="latest" class="active">Latest</button>
     <button data-sort="largest">Biggest Trades</button>
-    <button data-sort="viewed">Popular</button>
-    <button data-sort="performance">Best Performance</button>
   </div>
-  <div class="result-count" id="resultCount">— trades</div>
-</div>
-
-<div class="facet-row" id="perfPeriodRow" style="display:none;">
-  <span class="facet-label">Return period:</span>
-  <select id="perfPeriodSelect">
-    <option value="m3">3 Months</option>
-    <option value="m6">6 Months</option>
-    <option value="y1">1 Year</option>
-    <option value="sinceTrade">Since Trade</option>
-  </select>
+  <div class="toolbar-actions">
+    <button class="show-all-toggle" id="showAllToggle" type="button">Show all trades</button>
+    <div class="result-count" id="resultCount">— trades</div>
+  </div>
 </div>
 
 <div class="filter-row" id="filterRow"></div>
@@ -326,11 +441,9 @@
   <span class="facet-label">Refine:</span>
   <select id="companyFilter"></select>
   <select id="ceoFilter"></select>
-  <select id="sectorFilter"></select>
   <select id="yearFilter"></select>
   <select id="planFilter"></select>
   <select id="valueFilter"></select>
-  <select id="holdingsFilter"></select>
 </div>
 
 <main class="layout">
@@ -380,10 +493,72 @@ let TRADES = [];
 const VOTER_STORAGE_KEY =
   "boardroom-anonymous-voter-id";
 
+const DEFAULT_MINIMUM_MARKET_VALUE =
+  100_000;
+
+const NEW_WINDOW_MS =
+  14 * 24 * 60 * 60 * 1000;
+
+const NEW_VOTE_THRESHOLD = 5;
+
+const CATEGORY_META = {
+  buy: {
+    label: "Buy",
+    color: "var(--tab-buy)",
+    group: "market",
+  },
+  sell: {
+    label: "Sell",
+    color: "var(--tab-sell)",
+    group: "market",
+  },
+  award: {
+    label: "Award / Grant",
+    color: "var(--tab-award)",
+    group: "comp",
+  },
+  option: {
+    label: "Option Exercise",
+    color: "var(--tab-option)",
+    group: "comp",
+  },
+};
+
+const GROUP_LABELS = {
+  market: "Market Trades",
+  comp: "Compensation Events",
+};
+
+const VALUE_BAND_LABELS = {
+  lt1m: "Under $1M",
+  "1to5m": "$1M–$5M",
+  "5to25m": "$5M–$25M",
+  gt25m: "$25M+",
+};
+
+const NOT_AVAILABLE = "N/A";
+
+let state = {
+  sort: "latest",
+  activeCategory: null,
+  search: "",
+  company: "",
+  ceo: "",
+  year: "",
+  plan: "",
+  valueBand: "",
+  showAll: false,
+  loading: false,
+  total: 0,
+  voted: new Set(),
+  votes: {},
+};
+
 function createAnonymousVoterId() {
   if (
     window.crypto &&
-    typeof window.crypto.randomUUID === "function"
+    typeof window.crypto.randomUUID ===
+      "function"
   ) {
     return window.crypto.randomUUID();
   }
@@ -422,10 +597,6 @@ function getOrCreateVoterId() {
 
     return voterId;
   } catch (error) {
-    /*
-     * This fallback works for the current page session when
-     * browser storage is unavailable.
-     */
     console.warn(
       "Could not access localStorage:",
       error
@@ -438,611 +609,1690 @@ function getOrCreateVoterId() {
 const VOTER_ID =
   getOrCreateVoterId();
 
-const CATEGORY_META = {
-  buy:    {label:"Buy",             color:"var(--tab-buy)",    group:"market"},
-  sell:   {label:"Sell",            color:"var(--tab-sell)",   group:"market"},
-  award:  {label:"Award / Grant",   color:"var(--tab-award)",  group:"comp"},
-  option: {label:"Option Exercise", color:"var(--tab-option)", group:"comp"},
-};
-const GROUP_LABELS = {market:"Market Trades", comp:"Compensation Events"};
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
 
-async function loadTradesFromApi(){
-  try{
-    const feedUrl =
-  `/api/form4?voter_id=${encodeURIComponent(
-    VOTER_ID
-  )}`;
+function safeUrl(value) {
+  try {
+    const parsed = new URL(
+      String(value || ""),
+      window.location.origin
+    );
 
-const res = await fetch(
-  feedUrl,
-  {
-    cache: "no-store",
-  }
-);
-    if(!res.ok) throw new Error(`API error ${res.status}`);
-    const data = await res.json();
-    const incoming = Array.isArray(data?.trades) ? data.trades : [];
-
-    const lu = document.getElementById('lastUpdated');
-    if (lu) lu.textContent = data?.fetchedAt ? new Date(data.fetchedAt).toLocaleString() : "—";
-
-    TRADES = incoming.map((t, idx) => ({
-      id: String(t.id ?? `trade-${idx}`),
-      ceo: t.ceo ?? "Unknown CEO",
-      company: t.company ?? "Unknown Company",
-      ticker: t.ticker ?? "N/A",
-      sector: t.sector ?? "Unknown",
-      tradeType: t.tradeType ?? "sell",
-      tradeTypeLabel: t.tradeTypeLabel ?? "Insider Transaction",
-      transactionDate: t.transactionDate ?? "2026-01-01",
-      filedDate: t.filedDate ?? t.transactionDate ?? "2026-01-01",
-      shares: Number(t.shares ?? 0),
-      price: Number(t.price ?? 0),
-      value: Number(t.value ?? 0),
-      pctHoldingsChange: Number(t.pctHoldingsChange ?? 0),
-      tenB51: Boolean(t.tenB51),
-      perf: t.perf ?? { sinceTrade: { changePct: 0 } },
-      upvotes: Number(t.upvotes ?? 0),
-voted: Boolean(t.voted),
-sharesOwnedAfter: Number(t.sharesOwnedAfter ?? 0),
-      sharesOwnedAfter: Number(t.sharesOwnedAfter ?? 0),
-      lines: Array.isArray(t.lines) ? t.lines : [{ shares:Number(t.shares ?? 0), price:Number(t.price ?? 0), value:Number(t.value ?? 0) }],
-      title: t.title ?? "New Form 4 filing",
-      summary: t.summary ?? "No summary provided.",
-      tags: Array.isArray(t.tags) ? t.tags : [],
-      sourceUrl: t.sourceUrl ?? "#",
-    }));
-
-    state.votes = {};
-state.voted = new Set();
-
-TRADES.forEach((trade) => {
-  state.votes[trade.id] =
-    trade.upvotes || 0;
-
-  if (trade.voted) {
-    state.voted.add(trade.id);
-  }
-});
-
-    buildFacetRow();
-    render();
-  }catch(err){
-    console.error('Failed loading trades:', err);
-    const feed = document.getElementById('feed');
-    feed.innerHTML = `<div class="no-results">Could not load live Form 4 data from /api/form4 yet.</div>`;
-    document.getElementById('resultCount').textContent = `0 trades`;
+    return ["http:", "https:"].includes(
+      parsed.protocol
+    )
+      ? parsed.href
+      : "#";
+  } catch {
+    return "#";
   }
 }
 
-let state = {
-  sort:"latest",
-  perfPeriod:"m3",
-  activeCategory: null,
-  search:"",
-  company:"", ceo:"", sector:"", year:"", plan:"", valueBand:"", holdingsBand:"",
-  voted: new Set(),
-  votes: {},
-};
-
-function fmtDate(d){
-  const dt = new Date(d + "T00:00:00");
-  return dt.toLocaleDateString('en-US', {year:'numeric', month:'short', day:'numeric'});
-}
-function fmtMoney(v){
-  if(v >= 1000000) return "$" + (v/1000000).toFixed(1) + "M";
-  if(v >= 1000) return "$" + (v/1000).toFixed(0) + "K";
-  return "$" + Number(v).toFixed(2);
-}
-function valueBand(v){
-  if(v < 1000000) return "lt1m";
-  if(v < 5000000) return "1to5m";
-  if(v < 25000000) return "5to25m";
-  return "gt25m";
-}
-const VALUE_BAND_LABELS = {lt1m:"Under $1M", "1to5m":"$1M–$5M", "5to25m":"$5M–$25M", gt25m:"$25M+"};
-function holdingsBand(pct){
-  const a = Math.abs(pct);
-  if(a < 1) return "lt1";
-  if(a < 5) return "1to5";
-  if(a < 15) return "5to15";
-  return "gt15";
-}
-const HOLDINGS_BAND_LABELS = {lt1:"Under 1%", "1to5":"1–5%", "5to15":"5–15%", gt15:"15%+"};
-const NOT_REPORTED = "Not reported";
-const PERIOD_LABELS = {m3:"3-Month Return", m6:"6-Month Return", y1:"1-Year Return", sinceTrade:"Since Trade"};
-const PERIOD_THRESHOLD_DAYS = {m3:90, m6:180, y1:365};
-
-function daysSince(dateStr){
-  const txn = new Date(dateStr + "T00:00:00");
-  const now = new Date();
-  return Math.floor((now - txn) / 86400000);
-}
-function getPerfForPeriod(t, period){
-  const elapsed = daysSince(t.transactionDate);
-  if(period === "sinceTrade"){
-    const entry = t.perf.sinceTrade;
-    return {available: !!entry, changePct: entry ? entry.changePct : 0, days: elapsed, label: PERIOD_LABELS.sinceTrade};
+function nullableNumber(value) {
+  if (
+    value === null ||
+    value === undefined ||
+    value === ""
+  ) {
+    return null;
   }
-  const threshold = PERIOD_THRESHOLD_DAYS[period];
-  const entry = t.perf[period];
-  if(!entry || elapsed < threshold){
-    return {available:false, changePct:null, days:threshold, label: PERIOD_LABELS[period]};
+
+  const parsed = Number(value);
+
+  return Number.isFinite(parsed)
+    ? parsed
+    : null;
+}
+
+function requiredNumber(
+  value,
+  fallback = 0
+) {
+  const parsed = nullableNumber(value);
+
+  return parsed === null
+    ? fallback
+    : parsed;
+}
+
+function formatDate(value) {
+  if (!value) {
+    return NOT_AVAILABLE;
   }
-  return {available:true, changePct: entry.changePct, days: threshold, label: PERIOD_LABELS[period]};
+
+  const date = new Date(
+    `${String(value).slice(0, 10)}T00:00:00`
+  );
+
+  if (Number.isNaN(date.getTime())) {
+    return NOT_AVAILABLE;
+  }
+
+  return date.toLocaleDateString(
+    "en-US",
+    {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    }
+  );
 }
 
-function formFourLink(t){
-  return t.sourceUrl || "#";
+function formatDateRange(trade) {
+  const first =
+    trade.firstTransactionDate ||
+    trade.transactionDate;
+
+  const last =
+    trade.lastTransactionDate ||
+    trade.transactionDate;
+
+  if (!first && !last) {
+    return NOT_AVAILABLE;
+  }
+
+  if (!first || first === last) {
+    return formatDate(last || first);
+  }
+
+  const firstDate = new Date(
+    `${String(first).slice(0, 10)}T00:00:00`
+  );
+
+  const lastDate = new Date(
+    `${String(last).slice(0, 10)}T00:00:00`
+  );
+
+  if (
+    Number.isNaN(firstDate.getTime()) ||
+    Number.isNaN(lastDate.getTime())
+  ) {
+    return `${formatDate(first)}–${formatDate(last)}`;
+  }
+
+  if (
+    firstDate.getFullYear() ===
+      lastDate.getFullYear() &&
+    firstDate.getMonth() ===
+      lastDate.getMonth()
+  ) {
+    const month =
+      firstDate.toLocaleDateString(
+        "en-US",
+        { month: "short" }
+      );
+
+    return `${month} ${firstDate.getDate()}–${lastDate.getDate()}, ${lastDate.getFullYear()}`;
+  }
+
+  return `${formatDate(first)}–${formatDate(last)}`;
 }
 
-function buildFilterRow(){
-  const row = document.getElementById('filterRow');
-  row.innerHTML = "";
-  ["market","comp"].forEach(groupKey => {
-    const groupWrap = document.createElement('div');
-    groupWrap.className = "chip-group";
-    const label = document.createElement('span');
-    label.className = "chip-group-label";
-    label.textContent = GROUP_LABELS[groupKey];
-    groupWrap.appendChild(label);
-    Object.entries(CATEGORY_META).filter(([,meta]) => meta.group === groupKey).forEach(([key, meta]) => {
-      const chip = document.createElement('button');
-      chip.className = "chip";
-      chip.dataset.cat = key;
-      chip.innerHTML = `<span class="dot" style="background:${meta.color}"></span>${meta.label}`;
-      chip.addEventListener('click', () => {
-        state.activeCategory = (state.activeCategory === key) ? null : key;
-        render();
-      });
-      groupWrap.appendChild(chip);
-    });
-    row.appendChild(groupWrap);
-  });
-  const clear = document.createElement('button');
-  clear.className = "chip clear";
-  clear.textContent = "Clear filters";
-  clear.addEventListener('click', () => { state.activeCategory = null; resetFacets(); render(); });
-  row.appendChild(clear);
-}
+function formatCompactMoney(value) {
+  const amount = nullableNumber(value);
 
-function buildFacetRow(){
-  const companies = [...new Set(TRADES.map(t => t.company))].sort();
-  const ceos = [...new Set(TRADES.map(t => t.ceo))].sort();
-  const sectors = [...new Set(TRADES.map(t => t.sector))].sort();
-  const years = [...new Set(TRADES.map(t => new Date(t.filedDate + "T00:00:00").getFullYear()))].sort((a,b)=>b-a);
+  if (amount === null) {
+    return NOT_AVAILABLE;
+  }
 
-  const setOptions = (id, items, allLabel) => {
-    const el = document.getElementById(id);
-    el.innerHTML = `<option value="">${allLabel}</option>` + items.map(v => `<option value="${v}">${v}</option>`).join('');
+  const sign = amount < 0 ? "-" : "";
+  const absolute = Math.abs(amount);
+
+  const formatScaled = (
+    divisor,
+    suffix
+  ) => {
+    const scaled = absolute / divisor;
+    const maximumFractionDigits =
+      scaled >= 100
+        ? 1
+        : scaled >= 10
+        ? 1
+        : 2;
+
+    return (
+      `${sign}$${scaled.toLocaleString(
+        "en-US",
+        {
+          minimumFractionDigits: 0,
+          maximumFractionDigits,
+        }
+      )}${suffix}`
+    );
   };
-  setOptions('companyFilter', companies, "All companies");
-  setOptions('ceoFilter', ceos, "All CEOs");
-  setOptions('sectorFilter', sectors, "All sectors");
-  setOptions('yearFilter', years, "All filing years");
 
-  document.getElementById('planFilter').innerHTML = `
-    <option value="">10b5-1: All</option>
-    <option value="yes">10b5-1 plan</option>
-    <option value="no">Discretionary</option>`;
-
-  document.getElementById('valueFilter').innerHTML = `<option value="">Any trade value</option>` +
-    Object.entries(VALUE_BAND_LABELS).map(([k,l]) => `<option value="${k}">${l}</option>`).join('');
-
-  document.getElementById('holdingsFilter').innerHTML = `<option value="">Any % of holdings</option>` +
-    Object.entries(HOLDINGS_BAND_LABELS).map(([k,l]) => `<option value="${k}">${l}</option>`).join('');
-
-  const bind = (id, stateKey) => {
-    const el = document.getElementById(id);
-    el.onchange = () => { state[stateKey] = el.value; el.classList.toggle('is-set', !!el.value); render(); };
-  };
-  bind('companyFilter','company'); bind('ceoFilter','ceo'); bind('sectorFilter','sector');
-  bind('yearFilter','year'); bind('planFilter','plan'); bind('valueFilter','valueBand'); bind('holdingsFilter','holdingsBand');
-}
-
-function resetFacets(){
-  state.company=""; state.ceo=""; state.sector=""; state.year=""; state.plan=""; state.valueBand=""; state.holdingsBand="";
-  ['companyFilter','ceoFilter','sectorFilter','yearFilter','planFilter','valueFilter','holdingsFilter'].forEach(id => {
-    const el = document.getElementById(id);
-    el.value = "";
-    el.classList.remove('is-set');
-  });
-}
-
-function getFiltered(){
-  let list = TRADES.slice();
-  if(state.activeCategory) list = list.filter(t => t.tradeType === state.activeCategory);
-  if(state.company) list = list.filter(t => t.company === state.company);
-  if(state.ceo) list = list.filter(t => t.ceo === state.ceo);
-  if(state.sector) list = list.filter(t => t.sector === state.sector);
-  if(state.year) list = list.filter(t => new Date(t.filedDate + "T00:00:00").getFullYear() === Number(state.year));
-  if(state.plan === "yes") list = list.filter(t => t.tenB51);
-  if(state.plan === "no") list = list.filter(t => !t.tenB51);
-  if(state.valueBand) list = list.filter(t => valueBand(t.value) === state.valueBand);
-  if(state.holdingsBand) list = list.filter(t => holdingsBand(t.pctHoldingsChange) === state.holdingsBand);
-  if(state.search.trim()){
-    const q = state.search.trim().toLowerCase();
-    list = list.filter(t =>
-      t.title.toLowerCase().includes(q) || t.summary.toLowerCase().includes(q) ||
-      t.ceo.toLowerCase().includes(q) || t.company.toLowerCase().includes(q) ||
-      t.ticker.toLowerCase().includes(q) || t.tags.some(tag => String(tag).toLowerCase().includes(q))
+  if (absolute >= 1_000_000_000) {
+    return formatScaled(
+      1_000_000_000,
+      "B"
     );
   }
 
-  if(state.sort === "latest") list.sort((a,b) => new Date(b.transactionDate) - new Date(a.transactionDate));
-  else if(state.sort === "largest") list.sort((a,b) => b.value - a.value);
-  else if(state.sort === "viewed") list.sort((a,b) => (state.votes[b.id]||0) - (state.votes[a.id]||0));
-  else if(state.sort === "performance"){
-    list.sort((a,b) => {
-      const pa = getPerfForPeriod(a, state.perfPeriod);
-      const pb = getPerfForPeriod(b, state.perfPeriod);
-      if(pa.available && pb.available) return pb.changePct - pa.changePct;
-      if(pa.available && !pb.available) return -1;
-      if(!pa.available && pb.available) return 1;
-      return new Date(b.transactionDate) - new Date(a.transactionDate);
-    });
+  if (absolute >= 1_000_000) {
+    return formatScaled(
+      1_000_000,
+      "M"
+    );
   }
+
+  if (absolute >= 1_000) {
+    return formatScaled(
+      1_000,
+      "K"
+    );
+  }
+
+  return `${sign}$${absolute.toLocaleString(
+    "en-US",
+    {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }
+  )}`;
+}
+
+function formatPrice(value) {
+  const price = nullableNumber(value);
+
+  if (price === null || price <= 0) {
+    return NOT_AVAILABLE;
+  }
+
+  return `$${price.toLocaleString(
+    "en-US",
+    {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }
+  )}`;
+}
+
+function formatWholeNumber(value) {
+  const number = nullableNumber(value);
+
+  if (number === null) {
+    return NOT_AVAILABLE;
+  }
+
+  return Math.round(number).toLocaleString(
+    "en-US"
+  );
+}
+
+function displayUnitLabel(
+  unitLabel,
+  count
+) {
+  const normalized = String(
+    unitLabel || "securities"
+  ).toLowerCase();
+
+  if (normalized === "ads") {
+    return Number(count) === 1
+      ? "ADS"
+      : "ADSs";
+  }
+
+  if (
+    normalized === "share" ||
+    normalized === "shares"
+  ) {
+    return Number(count) === 1
+      ? "Share"
+      : "Shares";
+  }
+
+  return "Securities";
+}
+
+function getSinceTradePerformance(trade) {
+  return nullableNumber(
+    trade?.perf?.sinceTrade?.changePct
+  );
+}
+
+function formatPerformance(trade) {
+  const change =
+    getSinceTradePerformance(trade);
+
+  if (change === null) {
+    return NOT_AVAILABLE;
+  }
+
+  const sign = change > 0 ? "+" : "";
+
+  return `${sign}${change.toFixed(1)}%`;
+}
+
+function valueBand(value) {
+  const amount = nullableNumber(value);
+
+  if (amount === null) {
+    return null;
+  }
+
+  if (amount < 1_000_000) {
+    return "lt1m";
+  }
+
+  if (amount < 5_000_000) {
+    return "1to5m";
+  }
+
+  if (amount < 25_000_000) {
+    return "5to25m";
+  }
+
+  return "gt25m";
+}
+
+function normalizeLine(line, trade) {
+  const source =
+    line && typeof line === "object"
+      ? line
+      : {};
+
+  const units = requiredNumber(
+    source.economicUnits ??
+      source.shares,
+    0
+  );
+
+  return {
+    transactionDate:
+      source.transactionDate ||
+      trade.transactionDate ||
+      null,
+
+    transactionCode:
+      source.transactionCode || "",
+
+    securityTitle:
+      source.securityTitle ||
+      "Unknown Security",
+
+    natureOfOwnership:
+      source.natureOfOwnership ||
+      null,
+
+    ownershipEntity:
+      source.ownershipEntity ||
+      null,
+
+    economicUnits: units,
+
+    economicUnitLabel:
+      source.economicUnitLabel ||
+      trade.economicUnitLabel ||
+      "securities",
+
+    price: nullableNumber(
+      source.reportedPrice ??
+        source.price
+    ),
+
+    value:
+      source.calculationTrusted === false
+        ? null
+        : nullableNumber(
+            source.calculatedValue ??
+              source.value
+          ),
+
+    adsRatio:
+      nullableNumber(source.adsRatio),
+
+    adsConversionApplied:
+      Boolean(
+        source.adsConversionApplied
+      ),
+
+    calculationTrusted:
+      source.calculationTrusted === true,
+
+    tenB51:
+      Boolean(source.tenB51),
+  };
+}
+
+function normalizeTrade(t, index) {
+  const trade = {
+    id: String(
+      t.id ?? `trade-${index}`
+    ),
+
+    accessionNumber:
+      t.accessionNumber ?? null,
+
+    reportingOwnerName:
+      t.reportingOwnerName ??
+      t.ceo ??
+      "Unknown CEO",
+
+    ceo:
+      t.ceo ?? "Unknown CEO",
+
+    officerTitle:
+      t.officerTitle ?? "",
+
+    company:
+      t.company ??
+      "Unknown Company",
+
+    ticker:
+      t.ticker ?? "N/A",
+
+    sector:
+      t.sector ?? "Unknown",
+
+    tradeType:
+      t.tradeType ?? "sell",
+
+    tradeTypeLabel:
+      t.tradeTypeLabel ??
+      "Insider Transaction",
+
+    transactionDate:
+      t.transactionDate ?? null,
+
+    firstTransactionDate:
+      t.firstTransactionDate ??
+      t.transactionDate ??
+      null,
+
+    lastTransactionDate:
+      t.lastTransactionDate ??
+      t.transactionDate ??
+      null,
+
+    transactionDates:
+      Array.isArray(t.transactionDates)
+        ? t.transactionDates
+        : [],
+
+    filedDate:
+      t.filedDate ?? null,
+
+    shares:
+      requiredNumber(t.shares, 0),
+
+    price:
+      nullableNumber(t.price),
+
+    value:
+      nullableNumber(t.value),
+
+    economicUnitLabel:
+      t.economicUnitLabel ??
+      "securities",
+
+    adsRatio:
+      nullableNumber(t.adsRatio),
+
+    adsConversionApplied:
+      Boolean(
+        t.adsConversionApplied
+      ),
+
+    calculationTrusted:
+      t.calculationTrusted === true,
+
+    calculationWarnings:
+      Array.isArray(
+        t.calculationWarnings
+      )
+        ? t.calculationWarnings
+        : [],
+
+    ownershipEntities:
+      Array.isArray(
+        t.ownershipEntities
+      )
+        ? t.ownershipEntities
+        : [],
+
+    pctHoldingsChange:
+      nullableNumber(
+        t.pctHoldingsChange
+      ),
+
+    sharesOwnedAfter:
+      nullableNumber(
+        t.sharesOwnedAfter
+      ),
+
+    tenB51:
+      Boolean(t.tenB51),
+
+    perf:
+      t.perf &&
+      typeof t.perf === "object"
+        ? t.perf
+        : {
+            sinceTrade: {
+              changePct: null,
+            },
+          },
+
+    upvotes:
+      requiredNumber(t.upvotes, 0),
+
+    voted:
+      Boolean(t.voted),
+
+    title:
+      t.title ??
+      "New Form 4 filing",
+
+    summary:
+      t.summary ??
+      "No summary provided.",
+
+    tags:
+      Array.isArray(t.tags)
+        ? t.tags
+        : [],
+
+    sourceUrl:
+      t.sourceUrl ?? "#",
+
+    createdAt:
+      t.createdAt ?? null,
+
+    updatedAt:
+      t.updatedAt ?? null,
+  };
+
+  trade.lines =
+    Array.isArray(t.lines)
+      ? t.lines.map((line) =>
+          normalizeLine(
+            line,
+            trade
+          )
+        )
+      : [];
+
+  return trade;
+}
+
+function updateShowAllButton() {
+  const button =
+    document.getElementById(
+      "showAllToggle"
+    );
+
+  if (!button) {
+    return;
+  }
+
+  button.disabled = state.loading;
+  button.classList.toggle(
+    "active",
+    state.showAll
+  );
+
+  if (state.loading) {
+    button.textContent =
+      "Loading…";
+  } else if (state.showAll) {
+    button.textContent =
+      "Use $100K minimum";
+  } else {
+    button.textContent =
+      "Show all trades";
+  }
+}
+
+async function loadTradesFromApi() {
+  state.loading = true;
+  updateShowAllButton();
+
+  try {
+    const params =
+      new URLSearchParams({
+        voter_id: VOTER_ID,
+        limit: "100",
+        sort:
+          state.sort === "largest"
+            ? "largest"
+            : "latest",
+      });
+
+    if (state.showAll) {
+      params.set(
+        "show_all",
+        "true"
+      );
+    } else {
+      params.set(
+        "min_value",
+        String(
+          DEFAULT_MINIMUM_MARKET_VALUE
+        )
+      );
+    }
+
+    const response = await fetch(
+      `/api/form4?${params.toString()}`,
+      {
+        cache: "no-store",
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error(
+        `API error ${response.status}`
+      );
+    }
+
+    const data =
+      await response.json();
+
+    const incoming =
+      Array.isArray(data?.trades)
+        ? data.trades
+        : [];
+
+    const lastUpdated =
+      document.getElementById(
+        "lastUpdated"
+      );
+
+    if (lastUpdated) {
+      lastUpdated.textContent =
+  data?.fetchedAt
+    ? new Date(
+        data.fetchedAt
+      ).toLocaleString()
+    : "N/A";
+    }
+
+    TRADES = incoming.map(
+      normalizeTrade
+    );
+
+    state.total =
+      requiredNumber(
+        data?.total,
+        TRADES.length
+      );
+
+    state.votes = {};
+    state.voted = new Set();
+
+    TRADES.forEach((trade) => {
+      state.votes[trade.id] =
+        trade.upvotes;
+
+      if (trade.voted) {
+        state.voted.add(
+          trade.id
+        );
+      }
+    });
+
+    buildFacetRow();
+    render();
+  } catch (error) {
+    console.error(
+      "Failed loading trades:",
+      error
+    );
+
+    const feed =
+      document.getElementById(
+        "feed"
+      );
+
+    feed.innerHTML =
+      '<div class="no-results">Could not load live Form 4 data from /api/form4 yet.</div>';
+
+    document.getElementById(
+      "resultCount"
+    ).textContent = "0 trades";
+  } finally {
+    state.loading = false;
+    updateShowAllButton();
+  }
+}
+
+function formFourLink(trade) {
+  return safeUrl(
+    trade.sourceUrl
+  );
+}
+
+function buildFilterRow() {
+  const row =
+    document.getElementById(
+      "filterRow"
+    );
+
+  row.innerHTML = "";
+
+  ["market", "comp"].forEach(
+    (groupKey) => {
+      const groupWrap =
+        document.createElement(
+          "div"
+        );
+
+      groupWrap.className =
+        "chip-group";
+
+      const label =
+        document.createElement(
+          "span"
+        );
+
+      label.className =
+        "chip-group-label";
+
+      label.textContent =
+        GROUP_LABELS[groupKey];
+
+      groupWrap.appendChild(
+        label
+      );
+
+      Object.entries(
+        CATEGORY_META
+      )
+        .filter(
+          ([, meta]) =>
+            meta.group === groupKey
+        )
+        .forEach(
+          ([key, meta]) => {
+            const chip =
+              document.createElement(
+                "button"
+              );
+
+            chip.className = "chip";
+            chip.dataset.cat = key;
+
+            chip.innerHTML =
+              `<span class="dot" style="background:${meta.color}"></span>${escapeHtml(meta.label)}`;
+
+            chip.addEventListener(
+              "click",
+              () => {
+                state.activeCategory =
+                  state.activeCategory ===
+                  key
+                    ? null
+                    : key;
+
+                render();
+              }
+            );
+
+            groupWrap.appendChild(
+              chip
+            );
+          }
+        );
+
+      row.appendChild(
+        groupWrap
+      );
+    }
+  );
+
+  const clear =
+    document.createElement(
+      "button"
+    );
+
+  clear.className = "chip clear";
+  clear.textContent =
+    "Clear filters";
+
+  clear.addEventListener(
+    "click",
+    () => {
+      state.activeCategory = null;
+      resetFacets();
+      render();
+    }
+  );
+
+  row.appendChild(clear);
+}
+
+function buildFacetRow() {
+  const companies = [
+    ...new Set(
+      TRADES.map(
+        (trade) => trade.company
+      )
+    ),
+  ].sort();
+
+  const ceos = [
+    ...new Set(
+      TRADES.map(
+        (trade) => trade.ceo
+      )
+    ),
+  ].sort();
+
+  const years = [
+    ...new Set(
+      TRADES.map((trade) => {
+        if (!trade.filedDate) {
+          return null;
+        }
+
+        const date = new Date(
+          `${trade.filedDate}T00:00:00`
+        );
+
+        return Number.isNaN(
+          date.getTime()
+        )
+          ? null
+          : date.getFullYear();
+      }).filter(Boolean)
+    ),
+  ].sort((a, b) => b - a);
+
+  const setOptions = (
+    id,
+    items,
+    allLabel
+  ) => {
+    const element =
+      document.getElementById(id);
+
+    element.innerHTML =
+      `<option value="">${escapeHtml(allLabel)}</option>` +
+      items
+        .map(
+          (value) =>
+            `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`
+        )
+        .join("");
+  };
+
+  setOptions(
+    "companyFilter",
+    companies,
+    "All companies"
+  );
+
+  setOptions(
+    "ceoFilter",
+    ceos,
+    "All CEOs"
+  );
+
+  setOptions(
+    "yearFilter",
+    years,
+    "All filing years"
+  );
+
+  document.getElementById(
+    "planFilter"
+  ).innerHTML = `
+    <option value="">10b5-1: All</option>
+    <option value="yes">10b5-1 plan</option>
+    <option value="no">Plan not indicated</option>`;
+
+  document.getElementById(
+    "valueFilter"
+  ).innerHTML =
+    '<option value="">Any trade value</option>' +
+    Object.entries(
+      VALUE_BAND_LABELS
+    )
+      .map(
+        ([key, label]) =>
+          `<option value="${key}">${escapeHtml(label)}</option>`
+      )
+      .join("");
+
+  const bind = (
+    id,
+    stateKey
+  ) => {
+    const element =
+      document.getElementById(id);
+
+    element.value =
+      state[stateKey] || "";
+
+    element.classList.toggle(
+      "is-set",
+      Boolean(element.value)
+    );
+
+    element.onchange = () => {
+      state[stateKey] =
+        element.value;
+
+      element.classList.toggle(
+        "is-set",
+        Boolean(element.value)
+      );
+
+      render();
+    };
+  };
+
+  bind(
+    "companyFilter",
+    "company"
+  );
+
+  bind(
+    "ceoFilter",
+    "ceo"
+  );
+
+  bind(
+    "yearFilter",
+    "year"
+  );
+
+  bind(
+    "planFilter",
+    "plan"
+  );
+
+  bind(
+    "valueFilter",
+    "valueBand"
+  );
+}
+
+function resetFacets() {
+  state.company = "";
+  state.ceo = "";
+  state.year = "";
+  state.plan = "";
+  state.valueBand = "";
+
+  [
+    "companyFilter",
+    "ceoFilter",
+    "yearFilter",
+    "planFilter",
+    "valueFilter",
+  ].forEach((id) => {
+    const element =
+      document.getElementById(id);
+
+    element.value = "";
+    element.classList.remove(
+      "is-set"
+    );
+  });
+}
+
+function getFiltered() {
+  let list = TRADES.slice();
+
+  if (state.activeCategory) {
+    list = list.filter(
+      (trade) =>
+        trade.tradeType ===
+        state.activeCategory
+    );
+  }
+
+  if (state.company) {
+    list = list.filter(
+      (trade) =>
+        trade.company ===
+        state.company
+    );
+  }
+
+  if (state.ceo) {
+    list = list.filter(
+      (trade) =>
+        trade.ceo === state.ceo
+    );
+  }
+
+  if (state.year) {
+    list = list.filter(
+      (trade) => {
+        if (!trade.filedDate) {
+          return false;
+        }
+
+        const date = new Date(
+          `${trade.filedDate}T00:00:00`
+        );
+
+        return (
+          !Number.isNaN(
+            date.getTime()
+          ) &&
+          date.getFullYear() ===
+            Number(state.year)
+        );
+      }
+    );
+  }
+
+  if (state.plan === "yes") {
+    list = list.filter(
+      (trade) => trade.tenB51
+    );
+  }
+
+  if (state.plan === "no") {
+    list = list.filter(
+      (trade) => !trade.tenB51
+    );
+  }
+
+  if (state.valueBand) {
+    list = list.filter(
+      (trade) =>
+        valueBand(trade.value) ===
+        state.valueBand
+    );
+  }
+
+  if (state.search.trim()) {
+    const query =
+      state.search
+        .trim()
+        .toLowerCase();
+
+    list = list.filter(
+      (trade) => {
+        const searchable = [
+          trade.title,
+          trade.summary,
+          trade.ceo,
+          trade.reportingOwnerName,
+          trade.company,
+          trade.ticker,
+          ...trade.tags,
+          ...trade.ownershipEntities,
+        ]
+          .join(" ")
+          .toLowerCase();
+
+        return searchable.includes(
+          query
+        );
+      }
+    );
+  }
+
+  if (state.sort === "largest") {
+    list.sort((a, b) => {
+      const aValue =
+        nullableNumber(a.value);
+
+      const bValue =
+        nullableNumber(b.value);
+
+      if (
+        aValue === null &&
+        bValue === null
+      ) {
+        return (
+          new Date(
+            b.transactionDate || 0
+          ) -
+          new Date(
+            a.transactionDate || 0
+          )
+        );
+      }
+
+      if (aValue === null) {
+        return 1;
+      }
+
+      if (bValue === null) {
+        return -1;
+      }
+
+      return bValue - aValue;
+    });
+  } else {
+    list.sort(
+      (a, b) =>
+        new Date(
+          b.transactionDate || 0
+        ) -
+        new Date(
+          a.transactionDate || 0
+        )
+    );
+  }
+
   return list;
 }
 
-function cardTemplate(t){
-  const meta = CATEGORY_META[t.tradeType] || CATEGORY_META.sell;
-  const voted = state.voted.has(t.id);
-  const activePeriod = state.sort === "performance" ? state.perfPeriod : "sinceTrade";
-  const perfInfo = getPerfForPeriod(t, activePeriod);
-  const perfClass = !perfInfo.available ? '' : (perfInfo.changePct > 0 ? 'pos' : (perfInfo.changePct < 0 ? 'neg' : ''));
-  const perfSign = perfInfo.available && perfInfo.changePct > 0 ? '+' : '';
-  const perfLabel = activePeriod === "sinceTrade" ? `${perfInfo.days}d Since Trade` : perfInfo.label;
-  const perfValue = perfInfo.available ? `${perfSign}${Number(perfInfo.changePct).toFixed(1)}%` : NOT_REPORTED;
-  const holdSign = t.pctHoldingsChange > 0 ? '+' : '';
-  const priceDisplay = t.tradeType === "award" ? NOT_REPORTED : `$${Number(t.price).toFixed(2)}`;
+function isNewTrade(trade) {
+  if (!trade.createdAt) {
+    return false;
+  }
+
+  const created = new Date(
+    trade.createdAt
+  );
+
+  if (
+    Number.isNaN(created.getTime())
+  ) {
+    return false;
+  }
+
+  const age =
+    Date.now() - created.getTime();
+
+  const votes =
+    state.votes[trade.id] || 0;
+
+  return (
+    age >= 0 &&
+    age <= NEW_WINDOW_MS &&
+    votes < NEW_VOTE_THRESHOLD
+  );
+}
+
+function transactionDetailsHtml(trade) {
+  if (
+    !Array.isArray(trade.lines) ||
+    trade.lines.length <= 1
+  ) {
+    return "";
+  }
+
+  const rows = trade.lines
+    .map((line) => {
+      const units =
+        line.economicUnits;
+
+      const unitLabel =
+        displayUnitLabel(
+          line.economicUnitLabel,
+          units
+        );
+
+      return `
+        <div class="transaction-line">
+          <span><strong>${escapeHtml(formatDate(line.transactionDate))}</strong></span>
+          <span>${escapeHtml(formatWholeNumber(units))} ${escapeHtml(unitLabel)}</span>
+          <span>${escapeHtml(formatPrice(line.price))}</span>
+          <span>${escapeHtml(formatCompactMoney(line.value))}</span>
+        </div>`;
+    })
+    .join("");
+
+  return `
+    <details class="transaction-details">
+      <summary>Show ${trade.lines.length} transactions</summary>
+      <div class="transaction-line-list">${rows}</div>
+    </details>`;
+}
+
+function cardTemplate(trade) {
+  const meta =
+    CATEGORY_META[trade.tradeType] ||
+    CATEGORY_META.sell;
+
+  const voted =
+    state.voted.has(trade.id);
+
+  const performance =
+    getSinceTradePerformance(trade);
+
+  const performanceClass =
+    performance === null
+      ? ""
+      : performance > 0
+      ? "pos"
+      : performance < 0
+      ? "neg"
+      : "";
+
+  const unitLabel =
+    displayUnitLabel(
+      trade.economicUnitLabel,
+      trade.shares
+    );
+
+  const planBadge =
+    trade.tenB51
+      ? '<span class="plan-badge plan">10b5-1 Plan</span>'
+      : "";
+
+  const newBadge =
+    isNewTrade(trade)
+      ? '<span class="new-badge">New</span>'
+      : "";
+
+  const ownershipBadges =
+    trade.ownershipEntities
+      .map(
+        (entity) =>
+          `<span class="ownership-badge">Through ${escapeHtml(entity)}</span>`
+      )
+      .join("");
+
+  const badges =
+    `${newBadge}${planBadge}${ownershipBadges}`;
+
   return `
   <article class="trade-card" style="--tab-color:${meta.color}">
     <div class="vote-col">
-      <button class="vote-btn ${voted ? 'voted':''}" data-vote="${t.id}" aria-label="Upvote this trade">
+      <button class="vote-btn ${voted ? "voted" : ""}" data-vote="${escapeHtml(trade.id)}" aria-label="Upvote this trade">
         <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 4l8 9h-5v7H9v-7H4z"/></svg>
       </button>
-      <div class="vote-count">${state.votes[t.id] || 0}</div>
+      <div class="vote-count">${state.votes[trade.id] || 0}</div>
     </div>
     <div class="card-body">
       <div class="card-top">
         <div class="docket-line">
-          <span class="ticker">${t.ticker}</span>
+          <span class="ticker">${escapeHtml(trade.ticker)}</span>
           <span>·</span>
-          <span>${t.company}</span>
+          <span>${escapeHtml(trade.company)}</span>
           <span>·</span>
-          <span class="type-label" style="--tab-color:${meta.color}">${meta.label}</span>
+          <span class="type-label" style="--tab-color:${meta.color}">${escapeHtml(meta.label)}</span>
         </div>
-        <div class="stamp">${t.tradeTypeLabel}</div>
+        <div class="stamp">${escapeHtml(trade.tradeTypeLabel)}</div>
       </div>
-      <h3 class="case-title">${t.title}</h3>
-      <div class="case-meta">${t.ceo}, CEO &nbsp;·&nbsp; ${t.sector} &nbsp;·&nbsp; Traded ${fmtDate(t.transactionDate)} &nbsp;·&nbsp; Filed ${fmtDate(t.filedDate)}</div>
 
-      <div class="badge-row">
-        <span class="plan-badge ${t.tenB51 ? 'plan' : ''}">${t.tenB51 ? '10b5-1 Plan' : 'Discretionary'}</span>
+      <h3 class="case-title">${escapeHtml(trade.title)}</h3>
+
+      <div class="case-meta">
+        ${escapeHtml(trade.ceo)}, CEO
+        &nbsp;·&nbsp; Traded ${escapeHtml(formatDateRange(trade))}
+        &nbsp;·&nbsp; Filed ${escapeHtml(formatDate(trade.filedDate))}
       </div>
+
+      ${badges ? `<div class="badge-row">${badges}</div>` : ""}
 
       <div class="stat-grid">
-        <div class="stat"><span class="stat-label">Shares</span><span class="stat-value">${t.shares.toLocaleString()}</span></div>
-        <div class="stat"><span class="stat-label">Price</span><span class="stat-value">${priceDisplay}</span></div>
-        <div class="stat"><span class="stat-label">Value</span><span class="stat-value">${fmtMoney(t.value)}</span></div>
-        <div class="stat"><span class="stat-label">% of Holdings</span><span class="stat-value">${holdSign}${Number(t.pctHoldingsChange).toFixed(1)}%</span></div>
-        <div class="stat"><span class="stat-label">${perfLabel}</span><span class="stat-value ${perfClass}">${perfValue}</span></div>
+        <div class="stat"><span class="stat-label">${escapeHtml(unitLabel)}</span><span class="stat-value">${escapeHtml(formatWholeNumber(trade.shares))}</span></div>
+        <div class="stat"><span class="stat-label">Avg. Price</span><span class="stat-value">${escapeHtml(formatPrice(trade.price))}</span></div>
+        <div class="stat"><span class="stat-label">Value</span><span class="stat-value">${escapeHtml(formatCompactMoney(trade.value))}</span></div>
+        <div class="stat"><span class="stat-label">Since Trade</span><span class="stat-value ${performanceClass}">${escapeHtml(formatPerformance(trade))}</span></div>
       </div>
 
-      <p class="case-summary">${t.summary}</p>
-      <div class="tag-row">${t.tags.map(tg => `<span class="tag">#${tg}</span>`).join('')}</div>
+      <p class="case-summary">${escapeHtml(trade.summary)}</p>
+
+      ${transactionDetailsHtml(trade)}
+
+      <div class="tag-row">${trade.tags.map((tag) => `<span class="tag">#${escapeHtml(tag)}</span>`).join("")}</div>
+
       <div class="card-footer">
-        <button class="decision-link" data-modal="${t.id}" type="button">View Filing →</button>
-        <a class="form4-link" href="${formFourLink(t)}" target="_blank" rel="noopener noreferrer">FORM 4 LINK ↗</a>
+        <button class="decision-link" data-modal="${escapeHtml(trade.id)}" type="button">View Filing →</button>
+        <a class="form4-link" href="${escapeHtml(formFourLink(trade))}" target="_blank" rel="noopener noreferrer">FORM 4 LINK ↗</a>
       </div>
     </div>
   </article>`;
 }
 
 const MEANING_BY_TYPE = {
-  buy: "This was an open-market purchase — the CEO used their own money to buy shares.",
-  sell: "This was an open-market sale — executives often sell for routine reasons like taxes or diversification.",
-  award: "This was a stock award/grant as compensation, not a discretionary market buy/sell.",
-  option: "This was an option exercise — converting granted options into shares.",
+  buy:
+    "This was reported as an open-market purchase.",
+
+  sell:
+    "This was reported as an open-market sale. Executives may sell for many routine reasons, so the filing alone does not establish motive.",
+
+  award:
+    "This was a stock award or grant reported as compensation, not an open-market purchase or sale.",
+
+  option:
+    "This was an option exercise involving previously granted options.",
 };
 
-function planMeaning(t){
-  return t.tenB51
-    ? "This transaction was carried out under a pre-scheduled 10b5-1 trading plan."
-    : "This was a discretionary transaction not marked as a pre-scheduled 10b5-1 plan.";
+function planMeaning(trade) {
+  return trade.tenB51
+    ? "The filing identifies the transaction as occurring under a Rule 10b5-1 trading plan."
+    : "The imported filing data did not identify a Rule 10b5-1 plan, and no further plan status is inferred.";
 }
 
-function buildSparkSVG(t){
-  const since = getPerfForPeriod(t, "sinceTrade");
-  const perf = Number(since.changePct || 0);
-  const start = Number(t.price || 0);
-  const end = start * (1 + perf/100);
-  const n = 9;
-  const pts = [];
-  for(let i=0;i<=n;i++){
-    const frac = i/n;
-    const base = start + (end-start)*frac;
-    const wiggle = (i===0 || i===n) ? 0 : Math.sin((i+1)*1.7) * (Math.abs(end-start)*0.18 + Math.max(start, 1)*0.006);
-    pts.push(base + wiggle);
+function performanceSentence(trade) {
+  const performance =
+    getSinceTradePerformance(trade);
+
+  if (performance === null) {
+    return NOT_AVAILABLE;
   }
-  const min = Math.min(...pts), max = Math.max(...pts);
-  const range = (max - min) || 1;
-  const w = 300, h = 84, pad = 8;
-  const coords = pts.map((v,i) => {
-    const x = (i/n) * (w - pad*2) + pad;
-    const y = h - pad - ((v - min)/range) * (h - pad*2);
-    return [x,y];
-  });
-  const lineColor = perf >= 0 ? 'var(--pos)' : 'var(--neg)';
-  const polyline = coords.map(c => c.join(',')).join(' ');
-  const areaPts = `${pad},${h-pad} ` + polyline + ` ${w-pad},${h-pad}`;
-  const [x0,y0] = coords[0];
-  const [xN,yN] = coords[n];
-  return `
-    <svg viewBox="0 0 ${w} ${h}" width="100%" height="${h}">
-      <polygon points="${areaPts}" fill="${lineColor}" opacity="0.12"></polygon>
-      <polyline points="${polyline}" fill="none" stroke="${lineColor}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"></polyline>
-      <circle cx="${x0}" cy="${y0}" r="4" fill="#fff" stroke="${lineColor}" stroke-width="2"></circle>
-      <circle cx="${xN}" cy="${yN}" r="4" fill="${lineColor}" stroke="#fff" stroke-width="1.5"></circle>
-    </svg>`;
-}
 
-function tradeSummarySentence(t){
-  const value = fmtMoney(t.value);
-  const price = "$" + Number(t.price || 0).toFixed(2);
-  const shares = Number(t.shares || 0).toLocaleString();
-  const after = Number(t.sharesOwnedAfter || 0).toLocaleString();
-  if(t.tradeType === "sell") return `${t.ceo} sold ${shares} shares for approximately ${value} at an average price of ${price}; holdings after: ${after} shares.`;
-  if(t.tradeType === "buy") return `${t.ceo} bought ${shares} shares for approximately ${value} at an average price of ${price}; holdings after: ${after} shares.`;
-  if(t.tradeType === "award") return `${t.ceo} received an award of ${shares} shares valued at approximately ${value}; holdings after: ${after} shares.`;
-  return `${t.ceo} exercised options for ${shares} shares valued at approximately ${value}; holdings after: ${after} shares.`;
-}
+  const direction =
+    performance > 0
+      ? "up"
+      : performance < 0
+      ? "down"
+      : "unchanged";
 
-function perfSentence(t){
-  const since = getPerfForPeriod(t, "sinceTrade");
-  const perf = Number(since.changePct || 0);
-  const start = Number(t.price || 0);
-  const end = start * (1 + perf/100);
-  if(perf === 0){
-    return `${t.company}'s stock has been roughly flat since the trade date over ${since.days} days.`;
+  if (performance === 0) {
+    return `${trade.company}'s calculated market performance is unchanged since the trade date.`;
   }
-  const dir = perf > 0 ? "up" : "down";
-  return `${t.company}'s stock is ${dir} ${Math.abs(perf).toFixed(1)}% since the trade date, moving from $${start.toFixed(2)} to about $${end.toFixed(2)} over ${since.days} days.`;
+
+  return `${trade.company}'s calculated market performance is ${direction} ${Math.abs(performance).toFixed(1)}% since the trade date.`;
 }
 
-function txnTableHTML(t){
-  const isAward = t.tradeType === "award";
-  const rows = t.lines.map(l => `
-    <tr>
-      <td>${fmtDate(t.transactionDate)}</td>
-      <td>${t.tradeTypeLabel}</td>
-      <td>${Number(l.shares || 0).toLocaleString()}</td>
-      <td>${isAward ? NOT_REPORTED : "$" + Number(l.price || 0).toFixed(2)}</td>
-      <td>${fmtMoney(Number(l.value || 0))}</td>
-    </tr>`).join('');
+function transactionTableHtml(trade) {
+  const rows = trade.lines
+    .map((line) => {
+      const unitLabel =
+        displayUnitLabel(
+          line.economicUnitLabel,
+          line.economicUnits
+        );
+
+      return `
+        <tr>
+          <td>${escapeHtml(formatDate(line.transactionDate))}</td>
+          <td>${escapeHtml(line.transactionCode || trade.tradeTypeLabel)}</td>
+          <td>${escapeHtml(line.securityTitle)}</td>
+          <td>${escapeHtml(formatWholeNumber(line.economicUnits))} ${escapeHtml(unitLabel)}</td>
+          <td>${escapeHtml(formatPrice(line.price))}</td>
+          <td>${escapeHtml(formatCompactMoney(line.value))}</td>
+        </tr>`;
+    })
+    .join("");
+
+  const unitLabel =
+    displayUnitLabel(
+      trade.economicUnitLabel,
+      trade.shares
+    );
+
   return `
     <table class="txn-table">
-      <thead><tr><th>Date</th><th>Type</th><th>Shares</th><th>Price</th><th>Value</th></tr></thead>
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Code</th>
+          <th>Security</th>
+          <th>Units</th>
+          <th>Price</th>
+          <th>Value</th>
+        </tr>
+      </thead>
       <tbody>${rows}</tbody>
-      <tfoot><tr><td colspan="2">Total</td><td>${Number(t.shares || 0).toLocaleString()}</td><td>${isAward ? NOT_REPORTED : "avg $" + Number(t.price || 0).toFixed(2)}</td><td>${fmtMoney(Number(t.value || 0))}</td></tr></tfoot>
+      <tfoot>
+        <tr>
+          <td colspan="3">Total</td>
+          <td>${escapeHtml(formatWholeNumber(trade.shares))} ${escapeHtml(unitLabel)}</td>
+          <td>${escapeHtml(formatPrice(trade.price))}</td>
+          <td>${escapeHtml(formatCompactMoney(trade.value))}</td>
+        </tr>
+      </tfoot>
     </table>`;
 }
 
-function modalTemplate(t){
-  const since = getPerfForPeriod(t, "sinceTrade");
-  const perf = Number(since.changePct || 0);
-  const perfClass = perf > 0 ? 'pos' : (perf < 0 ? 'neg' : '');
-  const perfSign = perf > 0 ? '+' : '';
-  const startPrice = Number(t.price || 0);
-  const endPrice = startPrice * (1 + perf/100);
-  const priceDisplay = t.tradeType === "award" ? NOT_REPORTED : `$${startPrice.toFixed(2)}`;
+function calculationNote(trade) {
+  if (
+    trade.adsConversionApplied &&
+    trade.adsRatio
+  ) {
+    return `<p class="calculation-note">The filing states that each ADS represents ${escapeHtml(formatWholeNumber(trade.adsRatio))} underlying shares. The displayed units and values were converted and calculated in code before summary generation.</p>`;
+  }
+
+  if (
+    trade.calculationWarnings.length
+  ) {
+    return `<p class="calculation-note">Some filing data could not be converted with confidence. Untrusted values are shown as N/A.</p>`;
+  }
+
+  return `<p class="calculation-note">Displayed totals were calculated and rounded in code before summary generation.</p>`;
+}
+
+function modalTemplate(trade) {
+  const unitLabel =
+    displayUnitLabel(
+      trade.economicUnitLabel,
+      trade.shares
+    );
+
+  const performance =
+    getSinceTradePerformance(trade);
+
+  const performanceClass =
+    performance === null
+      ? ""
+      : performance > 0
+      ? "pos"
+      : performance < 0
+      ? "neg"
+      : "";
 
   return `
     <div class="modal-header">
       <div>
-        <div class="docket-line"><span class="ticker">${t.ticker}</span><span>·</span><span>${t.company}</span></div>
-        <div class="modal-title">${t.ceo} — ${t.tradeTypeLabel}</div>
+        <div class="docket-line"><span class="ticker">${escapeHtml(trade.ticker)}</span><span>·</span><span>${escapeHtml(trade.company)}</span></div>
+        <div class="modal-title">${escapeHtml(trade.ceo)} — ${escapeHtml(trade.tradeTypeLabel)}</div>
       </div>
       <button class="modal-close" id="modalCloseBtn" aria-label="Close" type="button">✕</button>
     </div>
+
     <div class="modal-body">
       <div class="modal-section">
         <span class="ai-tag">✦ Plain English Summary</span>
         <h4>Trade Summary</h4>
-        <p class="plain-sentence">${tradeSummarySentence(t)}</p>
+        <p class="plain-sentence">${escapeHtml(trade.summary)}</p>
+
         <div class="stat-grid">
-          <div class="stat"><span class="stat-label">Shares</span><span class="stat-value">${Number(t.shares || 0).toLocaleString()}</span></div>
-          <div class="stat"><span class="stat-label">Avg. Price</span><span class="stat-value">${priceDisplay}</span></div>
-          <div class="stat"><span class="stat-label">Total Value</span><span class="stat-value">${fmtMoney(Number(t.value || 0))}</span></div>
-          <div class="stat"><span class="stat-label">Transaction Date</span><span class="stat-value">${fmtDate(t.transactionDate)}</span></div>
-          <div class="stat"><span class="stat-label">Filed Date</span><span class="stat-value">${fmtDate(t.filedDate)}</span></div>
-          <div class="stat"><span class="stat-label">Holdings After</span><span class="stat-value">${Number(t.sharesOwnedAfter || 0).toLocaleString()} sh</span></div>
+          <div class="stat"><span class="stat-label">${escapeHtml(unitLabel)}</span><span class="stat-value">${escapeHtml(formatWholeNumber(trade.shares))}</span></div>
+          <div class="stat"><span class="stat-label">Avg. Price</span><span class="stat-value">${escapeHtml(formatPrice(trade.price))}</span></div>
+          <div class="stat"><span class="stat-label">Total Value</span><span class="stat-value">${escapeHtml(formatCompactMoney(trade.value))}</span></div>
+          <div class="stat"><span class="stat-label">Transaction Dates</span><span class="stat-value">${escapeHtml(formatDateRange(trade))}</span></div>
+          <div class="stat"><span class="stat-label">Filed Date</span><span class="stat-value">${escapeHtml(formatDate(trade.filedDate))}</span></div>
+          <div class="stat"><span class="stat-label">Since Trade</span><span class="stat-value ${performanceClass}">${escapeHtml(formatPerformance(trade))}</span></div>
         </div>
+
+        ${calculationNote(trade)}
       </div>
 
       <div class="modal-section">
         <h4>Transactions in this filing</h4>
-        <p class="section-note">Individual trades reported together on the same Form 4</p>
-        ${txnTableHTML(t)}
+        <p class="section-note">Individual transaction dates and checked values reported within this grouped Form 4 card.</p>
+        ${transactionTableHtml(trade)}
       </div>
 
       <div class="modal-section">
         <h4>What does this mean?</h4>
-        <p>${MEANING_BY_TYPE[t.tradeType] || MEANING_BY_TYPE.sell}</p>
-        <p style="margin-top:10px;">${planMeaning(t)}</p>
-        <p style="margin-top:10px;">${t.summary}</p>
+        <p>${escapeHtml(MEANING_BY_TYPE[trade.tradeType] || "This was an insider transaction reported on Form 4.")}</p>
+        <p style="margin-top:10px;">${escapeHtml(planMeaning(trade))}</p>
+        ${trade.ownershipEntities.length ? `<p style="margin-top:10px;">The filing identifies the transaction as made through ${escapeHtml(trade.ownershipEntities.join(" and "))}.</p>` : ""}
       </div>
 
       <div class="modal-section">
         <h4>Stock performance since trade</h4>
-        <p class="plain-sentence">${perfSentence(t)}</p>
-        <div class="spark-wrap">
-          ${buildSparkSVG(t)}
-          <div class="spark-stat-row">
-            <div class="spark-stat"><span class="spark-stat-label">Trade Date Price</span><span class="spark-stat-value">$${startPrice.toFixed(2)}</span></div>
-            <div class="spark-stat"><span class="spark-stat-label">Current Price</span><span class="spark-stat-value">$${endPrice.toFixed(2)}</span></div>
-            <div class="spark-stat"><span class="spark-stat-label">${since.days}-Day Return</span><span class="spark-stat-value ${perfClass}">${perfSign}${perf.toFixed(1)}%</span></div>
-          </div>
-        </div>
+        <p class="plain-sentence">${escapeHtml(performanceSentence(trade))}</p>
       </div>
     </div>
+
     <div class="modal-disclaimer">Trade summaries are simplified for readability and are not investment advice. Review the full Form 4 filing for official details.</div>
+
     <div class="modal-footer">
       <span class="hint">Source link from SEC filing</span>
-      <a class="btn-secondary" href="${formFourLink(t)}" target="_blank" rel="noopener noreferrer" style="text-decoration:none; display:inline-block;">FORM 4 LINK ↗</a>
+      <a class="btn-secondary" href="${escapeHtml(formFourLink(trade))}" target="_blank" rel="noopener noreferrer" style="text-decoration:none; display:inline-block;">FORM 4 LINK ↗</a>
     </div>`;
 }
 
-function openModal(id){
-  const t = TRADES.find(x => x.id === id);
-  if(!t) return;
-  document.getElementById('modalPanel').innerHTML = modalTemplate(t);
-  document.getElementById('modalOverlay').classList.add('open');
-  document.getElementById('modalCloseBtn').addEventListener('click', closeModal);
-}
-function closeModal(){ document.getElementById('modalOverlay').classList.remove('open'); }
+function openModal(id) {
+  const trade = TRADES.find(
+    (item) => item.id === id
+  );
 
-document.getElementById('modalOverlay').addEventListener('click', (e) => {
-  if(e.target.id === 'modalOverlay') closeModal();
-});
-document.addEventListener('keydown', (e) => { if(e.key === 'Escape') closeModal(); });
-
-function render(){
-  document.querySelectorAll('.chip[data-cat]').forEach(chip => {
-    chip.classList.toggle('active', chip.dataset.cat === state.activeCategory);
-  });
-  document.querySelectorAll('#sortTabs button').forEach(b => b.classList.toggle('active', b.dataset.sort === state.sort));
-
-  const list = getFiltered();
-  const feed = document.getElementById('feed');
-  document.getElementById('resultCount').textContent = `${list.length} trade${list.length===1?'':'s'}`;
-
-  if(!list.length){
-    feed.innerHTML = `<div class="no-results">No trades match your search or filters. Try clearing a filter above.</div>`;
+  if (!trade) {
     return;
   }
-  feed.innerHTML = list.map(cardTemplate).join('');
 
-  feed
-  .querySelectorAll("[data-vote]")
-  .forEach((btn) => {
-    btn.addEventListener(
-      "click",
-      async () => {
-        const tradeId =
-          btn.dataset.vote;
+  document.getElementById(
+    "modalPanel"
+  ).innerHTML =
+    modalTemplate(trade);
 
-        const currentlyVoted =
-          state.voted.has(tradeId);
+  document.getElementById(
+    "modalOverlay"
+  ).classList.add("open");
 
-        const desiredVote =
-          !currentlyVoted;
-
-        /*
-         * Prevent rapid double-clicks while the request is running.
-         */
-        btn.disabled = true;
-        btn.setAttribute(
-          "aria-busy",
-          "true"
-        );
-
-        try {
-          const response = await fetch(
-            "/api/vote",
-            {
-              method: "POST",
-
-              headers: {
-                "Content-Type":
-                  "application/json",
-              },
-
-              body: JSON.stringify({
-                tradeId,
-                voterId: VOTER_ID,
-                voted: desiredVote,
-              }),
-            }
-          );
-
-          const result =
-            await response.json();
-
-          if (!response.ok) {
-            throw new Error(
-              result?.error ||
-                `Vote request failed (${response.status})`
-            );
-          }
-
-          state.votes[tradeId] =
-            Number(
-              result.upvotes || 0
-            );
-
-          if (result.voted) {
-            state.voted.add(
-              tradeId
-            );
-          } else {
-            state.voted.delete(
-              tradeId
-            );
-          }
-
-          /*
-           * Re-render using the authoritative state returned
-           * by Neon.
-           */
-          render();
-        } catch (error) {
-          console.error(
-            "Could not save vote:",
-            error
-          );
-
-          btn.disabled = false;
-          btn.removeAttribute(
-            "aria-busy"
-          );
-
-          window.alert(
-            "Your vote could not be saved. Please try again."
-          );
-        }
-      }
-    );
-  });
-
-  feed.querySelectorAll('[data-modal]').forEach(btn => {
-    btn.addEventListener('click', () => openModal(btn.dataset.modal)); // FIXED: string id
-  });
+  document.getElementById(
+    "modalCloseBtn"
+  ).addEventListener(
+    "click",
+    closeModal
+  );
 }
 
-document.getElementById('sortTabs').addEventListener('click', (e) => {
-  const btn = e.target.closest('button[data-sort]');
-  if(!btn) return;
-  state.sort = btn.dataset.sort;
-  document.getElementById('perfPeriodRow').style.display = (state.sort === 'performance') ? 'flex' : 'none';
-  render();
-});
+function closeModal() {
+  document.getElementById(
+    "modalOverlay"
+  ).classList.remove("open");
+}
 
-document.getElementById('perfPeriodSelect').addEventListener('change', (e) => {
-  state.perfPeriod = e.target.value;
-  render();
-});
+async function saveVote(
+  tradeId,
+  button
+) {
+  const currentlyVoted =
+    state.voted.has(tradeId);
+
+  const desiredVote =
+    !currentlyVoted;
+
+  button.disabled = true;
+  button.setAttribute(
+    "aria-busy",
+    "true"
+  );
+
+  try {
+    const response = await fetch(
+      "/api/vote",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type":
+            "application/json",
+        },
+        body: JSON.stringify({
+          tradeId,
+          voterId: VOTER_ID,
+          voted: desiredVote,
+        }),
+      }
+    );
+
+    const result =
+      await response.json();
+
+    if (!response.ok) {
+      throw new Error(
+        result?.error ||
+          `Vote request failed (${response.status})`
+      );
+    }
+
+    state.votes[tradeId] =
+      requiredNumber(
+        result.upvotes,
+        0
+      );
+
+    if (result.voted) {
+      state.voted.add(tradeId);
+    } else {
+      state.voted.delete(tradeId);
+    }
+
+    render();
+  } catch (error) {
+    console.error(
+      "Could not save vote:",
+      error
+    );
+
+    button.disabled = false;
+    button.removeAttribute(
+      "aria-busy"
+    );
+
+    window.alert(
+      "Your vote could not be saved. Please try again."
+    );
+  }
+}
+
+function render() {
+  document
+    .querySelectorAll(
+      ".chip[data-cat]"
+    )
+    .forEach((chip) => {
+      chip.classList.toggle(
+        "active",
+        chip.dataset.cat ===
+          state.activeCategory
+      );
+    });
+
+  document
+    .querySelectorAll(
+      "#sortTabs button"
+    )
+    .forEach((button) => {
+      button.classList.toggle(
+        "active",
+        button.dataset.sort ===
+          state.sort
+      );
+    });
+
+  const list = getFiltered();
+  const feed =
+    document.getElementById(
+      "feed"
+    );
+
+  document.getElementById(
+    "resultCount"
+  ).textContent =
+    `${list.length} trade${list.length === 1 ? "" : "s"}`;
+
+  if (!list.length) {
+    feed.innerHTML =
+      '<div class="no-results">No trades match your search or filters. Try clearing a filter or using Show all trades.</div>';
+
+    return;
+  }
+
+  feed.innerHTML =
+    list.map(cardTemplate).join("");
+
+  feed
+    .querySelectorAll(
+      "[data-vote]"
+    )
+    .forEach((button) => {
+      button.addEventListener(
+        "click",
+        () =>
+          saveVote(
+            button.dataset.vote,
+            button
+          )
+      );
+    });
+
+  feed
+    .querySelectorAll(
+      "[data-modal]"
+    )
+    .forEach((button) => {
+      button.addEventListener(
+        "click",
+        () =>
+          openModal(
+            button.dataset.modal
+          )
+      );
+    });
+}
+
+document.getElementById(
+  "modalOverlay"
+).addEventListener(
+  "click",
+  (event) => {
+    if (
+      event.target.id ===
+      "modalOverlay"
+    ) {
+      closeModal();
+    }
+  }
+);
+
+document.addEventListener(
+  "keydown",
+  (event) => {
+    if (event.key === "Escape") {
+      closeModal();
+    }
+  }
+);
+
+document.getElementById(
+  "sortTabs"
+).addEventListener(
+  "click",
+  async (event) => {
+    const button =
+      event.target.closest(
+        "button[data-sort]"
+      );
+
+    if (!button) {
+      return;
+    }
+
+    state.sort =
+      button.dataset.sort;
+
+    await loadTradesFromApi();
+  }
+);
+
+document.getElementById(
+  "showAllToggle"
+).addEventListener(
+  "click",
+  async () => {
+    state.showAll =
+      !state.showAll;
+
+    await loadTradesFromApi();
+  }
+);
 
 let searchTimer;
-document.getElementById('searchInput').addEventListener('input', (e) => {
-  clearTimeout(searchTimer);
-  searchTimer = setTimeout(() => { state.search = e.target.value; render(); }, 120);
-});
+
+document.getElementById(
+  "searchInput"
+).addEventListener(
+  "input",
+  (event) => {
+    clearTimeout(searchTimer);
+
+    searchTimer = setTimeout(
+      () => {
+        state.search =
+          event.target.value;
+
+        render();
+      },
+      120
+    );
+  }
+);
 
 buildFilterRow();
 loadTradesFromApi();
-setInterval(loadTradesFromApi, 5 * 60 * 1000);
+
+setInterval(
+  loadTradesFromApi,
+  5 * 60 * 1000
+);
 </script>
 </body>
 </html>
