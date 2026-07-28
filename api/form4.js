@@ -92,6 +92,164 @@ function nullableNumber(value) {
 function numberOrZero(value) {
   return nullableNumber(value) ?? 0;
 }
+const CEO_NAME_SUFFIXES = new Map([
+  ["JR", "Jr."],
+  ["SR", "Sr."],
+  ["II", "II"],
+  ["III", "III"],
+  ["IV", "IV"],
+  ["V", "V"],
+]);
+
+function normalizeComparableName(value) {
+  return String(value ?? "")
+    .replace(/[.,]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function titleCaseCeoNameToken(value) {
+  const token = String(
+    value ?? ""
+  ).trim();
+
+  if (!token) {
+    return "";
+  }
+
+  const upper = token
+    .replace(/\./g, "")
+    .toUpperCase();
+
+  if (CEO_NAME_SUFFIXES.has(upper)) {
+    return CEO_NAME_SUFFIXES.get(upper);
+  }
+
+  if (/^[A-Z]$/.test(upper)) {
+    return `${upper}.`;
+  }
+
+  const titleCasePiece = (piece) => {
+    if (!piece) {
+      return piece;
+    }
+
+    const lower = piece.toLowerCase();
+
+    let output =
+      lower.charAt(0).toUpperCase() +
+      lower.slice(1);
+
+    if (/^mc[a-z]/i.test(output)) {
+      output =
+        output.slice(0, 2) +
+        output.charAt(2).toUpperCase() +
+        output.slice(3);
+    }
+
+    return output;
+  };
+
+  return token
+    .split("-")
+    .map((hyphenPart) =>
+      hyphenPart
+        .split("'")
+        .map(titleCasePiece)
+        .join("'")
+    )
+    .join("-");
+}
+
+function formatLegacySecCeoName(value) {
+  const normalized = String(
+    value || "Unknown CEO"
+  )
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (
+    !normalized ||
+    normalized === "Unknown CEO"
+  ) {
+    return "Unknown CEO";
+  }
+
+  if (normalized.includes(",")) {
+    const [
+      lastPart,
+      ...remainingParts
+    ] = normalized.split(",");
+
+    return [
+      ...remainingParts
+        .join(" ")
+        .trim()
+        .split(/\s+/)
+        .filter(Boolean)
+        .map(titleCaseCeoNameToken),
+
+      titleCaseCeoNameToken(
+        lastPart
+      ),
+    ]
+      .filter(Boolean)
+      .join(" ");
+  }
+
+  const tokens = normalized
+    .split(/\s+/)
+    .filter(Boolean);
+
+  if (tokens.length < 2) {
+    return tokens
+      .map(titleCaseCeoNameToken)
+      .join(" ");
+  }
+
+  /*
+   * SEC reporting-owner names are normally supplied as:
+   *
+   * LAST FIRST MIDDLE SUFFIX
+   */
+  const lastName = tokens[0];
+  const givenAndMiddle =
+    tokens.slice(1);
+
+  const suffixTokens = [];
+
+  while (
+    givenAndMiddle.length &&
+    CEO_NAME_SUFFIXES.has(
+      givenAndMiddle[
+        givenAndMiddle.length - 1
+      ]
+        .replace(/\./g, "")
+        .toUpperCase()
+    )
+  ) {
+    suffixTokens.unshift(
+      givenAndMiddle.pop()
+    );
+  }
+
+  return [
+    ...givenAndMiddle.map(
+      titleCaseCeoNameToken
+    ),
+
+    titleCaseCeoNameToken(
+      lastName
+    ),
+
+    ...suffixTokens.map(
+      titleCaseCeoNameToken
+    ),
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
 
 function parseJsonValue(value, fallback) {
   if (
@@ -491,11 +649,33 @@ function mapTradeRow(row) {
   const securityTotals =
     normalizeSecurityTotals(row);
 
-  const displayCeoName =
+  const rawCeoName =
+    row.raw_ceo_name ||
+    row.reporting_owner_name ||
+    row.ceo ||
+    "Unknown CEO";
+
+  const storedDisplayCeoName =
     row.display_ceo_name ||
     row.ceo ||
-    row.reporting_owner_name ||
-    "Unknown CEO";
+    rawCeoName;
+
+  /*
+   * The migration copied legacy CEO names into display_ceo_name.
+   * When the stored display name is effectively identical to the
+   * raw SEC name, calculate the reader-facing order here.
+   */
+  const displayCeoName =
+    normalizeComparableName(
+      storedDisplayCeoName
+    ) ===
+    normalizeComparableName(
+      rawCeoName
+    )
+      ? formatLegacySecCeoName(
+          rawCeoName
+        )
+      : storedDisplayCeoName;
 
   return {
     id:
@@ -522,10 +702,7 @@ function mapTradeRow(row) {
     reportingOwnerKey:
       row.reporting_owner_key || null,
 
-    rawCeoName:
-      row.raw_ceo_name ||
-      row.reporting_owner_name ||
-      null,
+    rawCeoName,
 
     displayCeoName,
 
