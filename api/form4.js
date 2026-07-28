@@ -1,586 +1,290 @@
-/*
- * ============================================================
- * DATABASE HELPERS
- * ============================================================
- */
+import { sql } from "../lib/db.js";
 
-/*
- * Check using both the stable ID and the database's grouped
- * identity fields. This protects against duplicates even if the
- * ID-generation logic changes later.
- */
-async function findExistingTrade(trade) {
-  const rows = await sql`
-    SELECT id
-    FROM trades
-    WHERE
-      id = ${trade.id}
-      OR (
-        accession_number = ${trade.accessionNumber}
-        AND ceo = ${trade.ceo}
-        AND trade_type = ${trade.tradeType}
-        AND transaction_date = ${trade.transactionDate}
-      )
-    LIMIT 1
-  `;
+function clampInteger(value, fallback, minimum, maximum) {
+  const parsed = Number.parseInt(value, 10);
 
-  return rows[0] || null;
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+
+  return Math.min(maximum, Math.max(minimum, parsed));
 }
 
-async function insertTrade({
-  trade,
-  title,
-  summary,
-  tags,
-}) {
-  /*
-   * JSON.stringify is used explicitly for JSONB fields so the
-   * Neon driver receives valid JSON text.
-   *
-   * ON CONFLICT DO NOTHING protects against two importer runs
-   * attempting to insert the same trade simultaneously.
-   */
-  const inserted = await sql`
-    INSERT INTO trades (
-      id,
-      accession_number,
-      ceo,
-      officer_title,
-      company,
-      ticker,
-      sector,
-      trade_type,
-      trade_type_label,
-      transaction_date,
-      filed_date,
-      shares,
-      average_price,
-      total_value,
-      pct_holdings_change,
-      shares_owned_after,
-      ten_b5_1,
-      lines,
-      title,
-      summary,
-      tags,
-      source_url,
-      ceo_match,
-      ceo_match_confidence,
-      perf
-    )
-    VALUES (
-      ${trade.id},
-      ${trade.accessionNumber},
-      ${trade.ceo},
-      ${trade.officerTitle || null},
-      ${trade.company},
-      ${trade.ticker || null},
-      ${trade.sector || "Unknown"},
-      ${trade.tradeType},
-      ${trade.tradeTypeLabel},
-      ${trade.transactionDate},
-      ${trade.filedDate || null},
-      ${roundShares(trade.shares)},
-      ${roundMoney(trade.price)},
-      ${roundMoney(trade.value)},
-      ${toFiniteNumber(
-        trade.pctHoldingsChange,
-        0
-      )},
-      ${roundShares(
-        trade.sharesOwnedAfter || 0
-      )},
-      ${Boolean(trade.tenB51)},
-      ${JSON.stringify(
-        Array.isArray(trade.lines)
-          ? trade.lines
-          : []
-      )}::jsonb,
-      ${title},
-      ${summary},
-      ${JSON.stringify(
-        Array.isArray(tags)
-          ? tags
-          : []
-      )}::jsonb,
-      ${trade.sourceUrl || null},
-      ${Boolean(trade.ceoMatch)},
-      ${
-        trade.ceoMatchConfidence == null
-          ? null
-          : toFiniteNumber(
-              trade.ceoMatchConfidence,
-              0
-            )
-      },
-      ${JSON.stringify(
-        trade.perf || {
-          sinceTrade: {
-            changePct: 0,
-          },
-        }
-      )}::jsonb
-    )
-    ON CONFLICT DO NOTHING
-    RETURNING id
-  `;
+function normalizeSort(value) {
+  const allowed = new Set([
+    "latest",
+    "largest",
+    "popular",
+  ]);
 
-  return inserted[0] || null;
+  const normalized = String(value || "latest").toLowerCase();
+
+  return allowed.has(normalized) ? normalized : "latest";
 }
 
-/*
- * ============================================================
- * EXPORTED IMPORTER
- * ============================================================
- */
-
-export async function importForm4Trades(
-  options = {}
-) {
-  const hermaiKey =
-    process.env.HERMAI_API_KEY;
-
-  const openaiKey =
-    process.env.OPENAI_API_KEY;
-
-  const model =
-    process.env.OPENAI_MODEL ||
-    "gpt-4.1-mini";
-
-  if (!hermaiKey) {
-    throw new Error(
-      "Missing HERMAI_API_KEY environment variable"
-    );
+function formatDatabaseDate(value) {
+  if (!value) {
+    return null;
   }
 
-  /*
-   * Import controls can be supplied by the eventual API route
-   * or cron job. Defaults match the current feed behaviour.
-   */
-  const role =
-    String(
-      options.role || "ceo"
-    ).toLowerCase() === "all"
-      ? "all"
-      : "ceo";
-
-  const limit = clampInteger(
-    options.limit,
-    10,
-    1,
-    25
-  );
-
-  const initialOffset = clampInteger(
-    options.offset,
-    0,
-    0,
-    100000
-  );
-
-  const maxPages = clampInteger(
-    options.maxPages,
-    3,
-    1,
-    8
-  );
-
-  /*
-   * This limit applies only to new trades.
-   * Trades beyond the limit still get inserted using fallback
-   * text, so they are not lost.
-   */
-  const maxAiSummaries = clampInteger(
-    options.maxAiSummaries,
-    12,
-    0,
-    30
-  );
-
-  const minimumTradeValue =
-    clampNumber(
-      options.minimumTradeValue,
-      1000,
-      0,
-      1_000_000_000
-    );
-
-  const skipZeroRows =
-    options.skipZeroRows !== false;
-
-  /*
-   * Default to the same seven-calendar-day import window used by
-   * the existing API.
-   */
-  const now = new Date();
-
-  const end = options.endDate
-    ? new Date(options.endDate)
-    : now;
-
-  const start = options.startDate
-    ? new Date(options.startDate)
-    : new Date(
-        end.getTime() -
-          6 * 24 * 60 * 60 * 1000
-      );
-
-  if (
-    Number.isNaN(start.getTime()) ||
-    Number.isNaN(end.getTime())
-  ) {
-    throw new Error(
-      "Invalid import date. Use YYYY-MM-DD."
-    );
+  if (value instanceof Date) {
+    return value.toISOString().slice(0, 10);
   }
 
-  const startDate =
-    formatDateForQuery(start);
+  const text = String(value);
+  const directMatch = text.match(/^(\d{4}-\d{2}-\d{2})/);
 
-  const endDate =
-    formatDateForQuery(end);
-
-  const dayMs =
-    24 * 60 * 60 * 1000;
-
-  const startUtc = Date.parse(
-    `${startDate}T00:00:00Z`
-  );
-
-  const endUtc = Date.parse(
-    `${endDate}T00:00:00Z`
-  );
-
-  const windowDays =
-    Math.floor(
-      (endUtc - startUtc) /
-        dayMs
-    ) + 1;
-
-  if (
-    windowDays < 1 ||
-    windowDays > 31
-  ) {
-    throw new Error(
-      "Import date window must be between 1 and 31 days."
-    );
+  if (directMatch) {
+    return directMatch[1];
   }
 
-  /*
-   * ============================================================
-   * FETCH HERMAI PAGES
-   * ============================================================
-   */
+  const parsed = new Date(value);
 
-  const allFilings = [];
+  return Number.isNaN(parsed.getTime())
+    ? null
+    : parsed.toISOString().slice(0, 10);
+}
 
-  let pageCount = 0;
-  let currentOffset =
-    initialOffset;
-
-  let hasMore = true;
-  let lastMeta = null;
-  let lastPagination = null;
-
-  while (
-    hasMore &&
-    pageCount < maxPages
-  ) {
-    const page =
-      await fetchHermPage({
-        hermaiKey,
-        startDate,
-        endDate,
-        role,
-        offset: currentOffset,
-        limit,
-      });
-
-    lastMeta =
-      page?.meta || null;
-
-    const filings =
-      Array.isArray(
-        page?.data?.filings
-      )
-        ? page.data.filings
-        : [];
-
-    const pagination =
-      page?.data?.pagination ||
-      {};
-
-    lastPagination =
-      pagination;
-
-    allFilings.push(
-      ...filings
-    );
-
-    hasMore = Boolean(
-      pagination?.has_more
-    );
-
-    currentOffset =
-      typeof pagination?.next_offset ===
-      "number"
-        ? pagination.next_offset
-        : currentOffset + limit;
-
-    pageCount += 1;
-
-    if (!hasMore) {
-      break;
-    }
-  }
-
-  /*
-   * ============================================================
-   * NORMALIZE AND GROUP
-   * ============================================================
-   */
-
-  const normalizedRows = [];
-
-  for (const filing of allFilings) {
-    normalizedRows.push(
-      ...filingToTransactionRows(
-        filing,
-        {
-          minimumTradeValue,
-          skipZeroRows,
-        }
-      )
-    );
-  }
-
-  let groupedTrades =
-    groupTransactionRows(
-      normalizedRows
-    );
-
-  /*
-   * The database requires a transaction date.
-   * A malformed source row without either a transaction date or
-   * filing date cannot be inserted safely.
-   */
-  const missingDateCount =
-    groupedTrades.filter(
-      (trade) =>
-        !trade.transactionDate
-    ).length;
-
-  groupedTrades =
-    groupedTrades.filter(
-      (trade) =>
-        Boolean(
-          trade.transactionDate
-        )
-    );
-
-  groupedTrades.sort(
-    (a, b) =>
-      new Date(
-        b.transactionDate || 0
-      ) -
-      new Date(
-        a.transactionDate || 0
-      )
-  );
-
-  /*
-   * ============================================================
-   * CHECK, SUMMARIZE, AND INSERT
-   * ============================================================
-   */
-
-  let insertedCount = 0;
-  let existingCount = 0;
-  let conflictCount = 0;
-
-  let aiSummaryCount = 0;
-  let fallbackSummaryCount = 0;
-
-  const insertedIds = [];
-  const errors = [];
-
-  for (const trade of groupedTrades) {
-    try {
-      const existing =
-        await findExistingTrade(
-          trade
-        );
-
-      if (existing) {
-        existingCount += 1;
-        continue;
-      }
-
-      let content;
-
-      if (
-        aiSummaryCount <
-          maxAiSummaries &&
-        openaiKey
-      ) {
-        content =
-          await generateAiSummary({
-            openaiKey,
-            model,
-            input:
-              buildAiInput(
-                trade
-              ),
-          });
-
-        aiSummaryCount += 1;
-      } else {
-        content = {
-          title:
-            fallbackTitle(
-              trade
-            ),
-
-          summary:
-            fallbackSummary(
-              trade
-            ),
-
-          tags:
-            fallbackTags(
-              trade
-            ),
-        };
-
-        fallbackSummaryCount += 1;
-      }
-
-      const inserted =
-        await insertTrade({
-          trade,
-          title:
-            content.title,
-          summary:
-            content.summary,
-          tags:
-            content.tags,
-        });
-
-      if (inserted) {
-        insertedCount += 1;
-
-        insertedIds.push(
-          inserted.id
-        );
-      } else {
-        /*
-         * A conflict can happen if another importer inserted the
-         * trade after our existence check.
-         */
-        conflictCount += 1;
-      }
-    } catch (error) {
-      console.error(
-        `Failed importing trade ${trade.id}:`,
-        error
-      );
-
-      errors.push({
-        id: trade.id,
-        message: String(
-          error?.message ||
-            error
-        ),
-      });
-    }
-  }
-
-  /*
-   * ============================================================
-   * IMPORT RESULT
-   * ============================================================
-   */
-
+function mapTradeRow(row) {
   return {
-    success:
-      errors.length === 0,
+    id: row.id,
+    accessionNumber: row.accession_number,
 
-    dateRange: {
-      startDate,
-      endDate,
-      windowDays,
-    },
+    ceo: row.ceo,
+    officerTitle: row.officer_title || "",
 
-    options: {
-      role,
-      limit,
-      initialOffset,
-      maxPages,
-      maxAiSummaries,
-      minimumTradeValue,
-      skipZeroRows,
-    },
+    company: row.company,
+    ticker: row.ticker || "N/A",
+    sector: row.sector || "Unknown",
 
-    fetched: {
-      pages:
-        pageCount,
+    tradeType: row.trade_type,
+    tradeTypeLabel: row.trade_type_label,
 
-      filings:
-        allFilings.length,
+    transactionDate: formatDatabaseDate(row.transaction_date),
+    filedDate: formatDatabaseDate(row.filed_date),
 
-      normalizedRows:
-        normalizedRows.length,
+    shares: Number(row.shares || 0),
+    price: Number(row.average_price || 0),
+    value: Number(row.total_value || 0),
 
-      groupedTrades:
-        groupedTrades.length,
+    pctHoldingsChange: Number(
+      row.pct_holdings_change || 0
+    ),
 
-      skippedMissingDate:
-        missingDateCount,
-    },
+    sharesOwnedAfter: Number(
+      row.shares_owned_after || 0
+    ),
 
-    database: {
-      inserted:
-        insertedCount,
+    tenB51: Boolean(row.ten_b5_1),
 
-      alreadyExisting:
-        existingCount,
+    lines: Array.isArray(row.lines)
+      ? row.lines
+      : [],
 
-      conflicts:
-        conflictCount,
+    title: row.title || "Form 4 transaction",
+    summary: row.summary || "No summary available.",
 
-      failed:
-        errors.length,
+    tags: Array.isArray(row.tags)
+      ? row.tags
+      : [],
 
-      insertedIds,
-    },
+    sourceUrl: row.source_url || "#",
 
-    summaries: {
-      ai:
-        aiSummaryCount,
+    ceoMatch: Boolean(row.ceo_match),
 
-      fallback:
-        fallbackSummaryCount,
-    },
+    ceoMatchConfidence:
+      row.ceo_match_confidence == null
+        ? null
+        : Number(row.ceo_match_confidence),
 
-    hermai: {
-      creditsUsed:
-        lastMeta
-          ?.credits_used ??
-        null,
+    perf:
+      row.perf && typeof row.perf === "object"
+        ? row.perf
+        : {
+            sinceTrade: {
+              changePct: 0,
+            },
+          },
 
-      creditsRemaining:
-        lastMeta
-          ?.credits_remaining ??
-        null,
+    upvotes: Number(row.upvotes || 0),
 
-      cached:
-        lastMeta?.cached ??
-        null,
-
-      pagination:
-        lastPagination,
-    },
-
-    errors,
+    createdAt: row.created_at || null,
+    updatedAt: row.updated_at || null,
   };
+}
+
+export default async function handler(req, res) {
+  try {
+    if (req.method !== "GET") {
+      res.setHeader("Allow", "GET");
+
+      return res.status(405).json({
+        error: "Method not allowed",
+      });
+    }
+
+    const q = req.query || {};
+
+    const limit = clampInteger(q.limit, 50, 1, 100);
+    const offset = clampInteger(q.offset, 0, 0, 1_000_000);
+    const sort = normalizeSort(q.sort);
+
+    const company = String(q.company || "").trim();
+    const ceo = String(q.ceo || "").trim();
+    const ticker = String(q.ticker || "").trim();
+    const tradeType = String(q.trade_type || "").trim();
+    const search = String(q.search || "").trim().toLowerCase();
+    const searchPattern = `%${search}%`;
+
+    let rows;
+
+    if (sort === "largest") {
+      rows = await sql`
+        SELECT
+          t.*,
+          COUNT(v.trade_id)::integer AS upvotes
+        FROM trades t
+        LEFT JOIN trade_votes v
+          ON v.trade_id = t.id
+        WHERE
+          (${company} = '' OR t.company = ${company})
+          AND (${ceo} = '' OR t.ceo = ${ceo})
+          AND (${ticker} = '' OR t.ticker = ${ticker})
+          AND (${tradeType} = '' OR t.trade_type = ${tradeType})
+          AND (
+            ${search} = ''
+            OR LOWER(t.company) LIKE ${searchPattern}
+            OR LOWER(t.ceo) LIKE ${searchPattern}
+            OR LOWER(COALESCE(t.ticker, '')) LIKE ${searchPattern}
+            OR LOWER(t.title) LIKE ${searchPattern}
+            OR LOWER(t.summary) LIKE ${searchPattern}
+          )
+        GROUP BY t.id
+        ORDER BY
+          t.total_value DESC,
+          t.transaction_date DESC,
+          t.created_at DESC
+        LIMIT ${limit}
+        OFFSET ${offset}
+      `;
+    } else if (sort === "popular") {
+      rows = await sql`
+        SELECT
+          t.*,
+          COUNT(v.trade_id)::integer AS upvotes
+        FROM trades t
+        LEFT JOIN trade_votes v
+          ON v.trade_id = t.id
+        WHERE
+          (${company} = '' OR t.company = ${company})
+          AND (${ceo} = '' OR t.ceo = ${ceo})
+          AND (${ticker} = '' OR t.ticker = ${ticker})
+          AND (${tradeType} = '' OR t.trade_type = ${tradeType})
+          AND (
+            ${search} = ''
+            OR LOWER(t.company) LIKE ${searchPattern}
+            OR LOWER(t.ceo) LIKE ${searchPattern}
+            OR LOWER(COALESCE(t.ticker, '')) LIKE ${searchPattern}
+            OR LOWER(t.title) LIKE ${searchPattern}
+            OR LOWER(t.summary) LIKE ${searchPattern}
+          )
+        GROUP BY t.id
+        ORDER BY
+          upvotes DESC,
+          t.transaction_date DESC,
+          t.created_at DESC
+        LIMIT ${limit}
+        OFFSET ${offset}
+      `;
+    } else {
+      rows = await sql`
+        SELECT
+          t.*,
+          COUNT(v.trade_id)::integer AS upvotes
+        FROM trades t
+        LEFT JOIN trade_votes v
+          ON v.trade_id = t.id
+        WHERE
+          (${company} = '' OR t.company = ${company})
+          AND (${ceo} = '' OR t.ceo = ${ceo})
+          AND (${ticker} = '' OR t.ticker = ${ticker})
+          AND (${tradeType} = '' OR t.trade_type = ${tradeType})
+          AND (
+            ${search} = ''
+            OR LOWER(t.company) LIKE ${searchPattern}
+            OR LOWER(t.ceo) LIKE ${searchPattern}
+            OR LOWER(COALESCE(t.ticker, '')) LIKE ${searchPattern}
+            OR LOWER(t.title) LIKE ${searchPattern}
+            OR LOWER(t.summary) LIKE ${searchPattern}
+          )
+        GROUP BY t.id
+        ORDER BY
+          t.transaction_date DESC,
+          t.filed_date DESC,
+          t.created_at DESC
+        LIMIT ${limit}
+        OFFSET ${offset}
+      `;
+    }
+
+    const countRows = await sql`
+      SELECT COUNT(*)::integer AS total
+      FROM trades t
+      WHERE
+        (${company} = '' OR t.company = ${company})
+        AND (${ceo} = '' OR t.ceo = ${ceo})
+        AND (${ticker} = '' OR t.ticker = ${ticker})
+        AND (${tradeType} = '' OR t.trade_type = ${tradeType})
+        AND (
+          ${search} = ''
+          OR LOWER(t.company) LIKE ${searchPattern}
+          OR LOWER(t.ceo) LIKE ${searchPattern}
+          OR LOWER(COALESCE(t.ticker, '')) LIKE ${searchPattern}
+          OR LOWER(t.title) LIKE ${searchPattern}
+          OR LOWER(t.summary) LIKE ${searchPattern}
+        )
+    `;
+
+    const trades = rows.map(mapTradeRow);
+    const total = Number(countRows?.[0]?.total || 0);
+
+    res.setHeader(
+      "Cache-Control",
+      "s-maxage=60, stale-while-revalidate=300"
+    );
+
+    return res.status(200).json({
+      source: "neon-postgres",
+      trades,
+      count: trades.length,
+      total,
+      fetchedAt: new Date().toISOString(),
+
+      pagination: {
+        limit,
+        offset,
+        hasMore: offset + trades.length < total,
+        nextOffset: offset + trades.length,
+      },
+
+      query: {
+        sort,
+        company,
+        ceo,
+        ticker,
+        tradeType,
+        search,
+      },
+    });
+  } catch (error) {
+    console.error("Stored Form 4 feed error:", error);
+
+    return res.status(500).json({
+      error: "Could not load stored Form 4 trades.",
+      detail:
+        process.env.NODE_ENV === "production"
+          ? undefined
+          : String(error?.message || error),
+    });
+  }
 }
