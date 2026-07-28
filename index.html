@@ -446,7 +446,8 @@
   }
 
   .controls-shell.controls-past .facet-row{
-    padding-bottom:10px;
+    /* Match the breathing room below the filters at the top of the page. */
+    padding-bottom:20px;
   }
 
   .controls-shell.controls-hidden{
@@ -2759,25 +2760,28 @@ function setupScrollControls() {
     return;
   }
 
+  const controlsStartY =
+    controls.getBoundingClientRect().top +
+    window.scrollY;
+
   let lastScrollY =
     window.scrollY;
 
+  let direction = null;
+  let directionStartY = lastScrollY;
   let ticking = false;
 
   const update = () => {
     const currentScrollY =
-      window.scrollY;
+      Math.max(0, window.scrollY);
 
     const delta =
       currentScrollY -
       lastScrollY;
 
-    const controlsTop =
-      controls.offsetTop;
-
     const pastControls =
       currentScrollY >
-      controlsTop + 20;
+      controlsStartY + 20;
 
     controls.classList.toggle(
       "controls-past",
@@ -2785,20 +2789,47 @@ function setupScrollControls() {
     );
 
     if (!pastControls) {
+      // Keep the menu visible in its normal
+      // position near the top of the page.
       controls.classList.remove(
         "controls-hidden"
       );
-    } else if (delta < -5) {
-      // Reveal the filters whenever the
-      // visitor scrolls upward.
-      controls.classList.remove(
-        "controls-hidden"
-      );
-    } else if (delta > 5) {
-      // Hide them while scrolling downward.
-      controls.classList.add(
-        "controls-hidden"
-      );
+
+      direction = null;
+      directionStartY = currentScrollY;
+    } else if (delta > 0) {
+      if (direction !== "down") {
+        direction = "down";
+        directionStartY = currentScrollY;
+      }
+
+      // Scrolling down can only hide the menu.
+      // It can never reveal it.
+      if (
+        currentScrollY -
+          directionStartY >= 8
+      ) {
+        controls.classList.add(
+          "controls-hidden"
+        );
+      }
+    } else if (delta < 0) {
+      if (direction !== "up") {
+        direction = "up";
+        directionStartY = currentScrollY;
+      }
+
+      // Require a deliberate upward movement so
+      // small browser or trackpad jitter does not
+      // make the menu reappear while moving down.
+      if (
+        directionStartY -
+          currentScrollY >= 8
+      ) {
+        controls.classList.remove(
+          "controls-hidden"
+        );
+      }
     }
 
     topButton.classList.toggle(
