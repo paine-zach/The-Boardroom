@@ -5,10 +5,5 @@
       "maxDuration": 300
     }
   },
-  "crons": [
-    {
-      "path": "/api/import-form4",
-      "schedule": "0 23 * * *"
-    }
-  ]
+  "crons": []
 }
