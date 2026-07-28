@@ -108,6 +108,8 @@ function mapTradeRow(row) {
 
     upvotes: Number(row.upvotes || 0),
 
+    voted: Boolean(row.voted),
+
     createdAt: row.created_at || null,
     updatedAt: row.updated_at || null,
   };
@@ -135,14 +137,36 @@ export default async function handler(req, res) {
     const tradeType = String(q.trade_type || "").trim();
     const search = String(q.search || "").trim().toLowerCase();
     const searchPattern = `%${search}%`;
+    const voterId = String(
+  q.voter_id ??
+  q.voterId ??
+  ""
+).trim();
+
+if (
+  voterId &&
+  !/^[a-zA-Z0-9_-]{8,128}$/.test(voterId)
+) {
+  return res.status(400).json({
+    error: "Invalid voter ID.",
+  });
+}
 
     let rows;
 
     if (sort === "largest") {
       rows = await sql`
         SELECT
-          t.*,
-          COUNT(v.trade_id)::integer AS upvotes
+  t.*,
+  COUNT(v.trade_id)::integer AS upvotes,
+
+  EXISTS (
+    SELECT 1
+    FROM trade_votes current_vote
+    WHERE
+      current_vote.trade_id = t.id
+      AND current_vote.voter_id = ${voterId}
+  ) AS voted
         FROM trades t
         LEFT JOIN trade_votes v
           ON v.trade_id = t.id
@@ -170,8 +194,16 @@ export default async function handler(req, res) {
     } else if (sort === "popular") {
       rows = await sql`
         SELECT
-          t.*,
-          COUNT(v.trade_id)::integer AS upvotes
+  t.*,
+  COUNT(v.trade_id)::integer AS upvotes,
+
+  EXISTS (
+    SELECT 1
+    FROM trade_votes current_vote
+    WHERE
+      current_vote.trade_id = t.id
+      AND current_vote.voter_id = ${voterId}
+  ) AS voted
         FROM trades t
         LEFT JOIN trade_votes v
           ON v.trade_id = t.id
@@ -199,8 +231,16 @@ export default async function handler(req, res) {
     } else {
       rows = await sql`
         SELECT
-          t.*,
-          COUNT(v.trade_id)::integer AS upvotes
+  t.*,
+  COUNT(v.trade_id)::integer AS upvotes,
+
+  EXISTS (
+    SELECT 1
+    FROM trade_votes current_vote
+    WHERE
+      current_vote.trade_id = t.id
+      AND current_vote.voter_id = ${voterId}
+  ) AS voted
         FROM trades t
         LEFT JOIN trade_votes v
           ON v.trade_id = t.id
@@ -249,9 +289,11 @@ export default async function handler(req, res) {
     const total = Number(countRows?.[0]?.total || 0);
 
     res.setHeader(
-      "Cache-Control",
-      "s-maxage=60, stale-while-revalidate=300"
-    );
+  "Cache-Control",
+  voterId
+    ? "private, no-store, max-age=0"
+    : "s-maxage=60, stale-while-revalidate=300"
+);
 
     return res.status(200).json({
       source: "neon-postgres",

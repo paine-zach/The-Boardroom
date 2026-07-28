@@ -377,6 +377,67 @@
 <script>
 let TRADES = [];
 
+const VOTER_STORAGE_KEY =
+  "boardroom-anonymous-voter-id";
+
+function createAnonymousVoterId() {
+  if (
+    window.crypto &&
+    typeof window.crypto.randomUUID === "function"
+  ) {
+    return window.crypto.randomUUID();
+  }
+
+  return [
+    "browser",
+    Date.now().toString(36),
+    Math.random().toString(36).slice(2),
+    Math.random().toString(36).slice(2),
+  ].join("-");
+}
+
+function getOrCreateVoterId() {
+  try {
+    const existing =
+      localStorage.getItem(
+        VOTER_STORAGE_KEY
+      );
+
+    if (
+      existing &&
+      /^[a-zA-Z0-9_-]{8,128}$/.test(
+        existing
+      )
+    ) {
+      return existing;
+    }
+
+    const voterId =
+      createAnonymousVoterId();
+
+    localStorage.setItem(
+      VOTER_STORAGE_KEY,
+      voterId
+    );
+
+    return voterId;
+  } catch (error) {
+    /*
+     * This fallback works for the current page session when
+     * browser storage is unavailable.
+     */
+    console.warn(
+      "Could not access localStorage:",
+      error
+    );
+
+    return createAnonymousVoterId();
+  }
+}
+
+const VOTER_ID =
+  getOrCreateVoterId();
+
 const CATEGORY_META = {
   buy:    {label:"Buy",             color:"var(--tab-buy)",    group:"market"},
   sell:   {label:"Sell",            color:"var(--tab-sell)",   group:"market"},
@@ -387,7 +448,17 @@ const GROUP_LABELS = {market:"Market Trades", comp:"Compensation Events"};
 
 async function loadTradesFromApi(){
   try{
-    const res = await fetch('/api/form4', { cache: 'no-store' });
+    const feedUrl =
+  `/api/form4?voter_id=${encodeURIComponent(
+    VOTER_ID
+  )}`;
+
+const res = await fetch(
+  feedUrl,
+  {
+    cache: "no-store",
+  }
+);
     if(!res.ok) throw new Error(`API error ${res.status}`);
     const data = await res.json();
     const incoming = Array.isArray(data?.trades) ? data.trades : [];
@@ -412,6 +483,8 @@ async function loadTradesFromApi(){
       tenB51: Boolean(t.tenB51),
       perf: t.perf ?? { sinceTrade: { changePct: 0 } },
       upvotes: Number(t.upvotes ?? 0),
+voted: Boolean(t.voted),
+sharesOwnedAfter: Number(t.sharesOwnedAfter ?? 0),
       sharesOwnedAfter: Number(t.sharesOwnedAfter ?? 0),
       lines: Array.isArray(t.lines) ? t.lines : [{ shares:Number(t.shares ?? 0), price:Number(t.price ?? 0), value:Number(t.value ?? 0) }],
       title: t.title ?? "New Form 4 filing",
@@ -421,7 +494,16 @@ async function loadTradesFromApi(){
     }));
 
     state.votes = {};
-    TRADES.forEach(t => { state.votes[t.id] = t.upvotes || 0; });
+state.voted = new Set();
+
+TRADES.forEach((trade) => {
+  state.votes[trade.id] =
+    trade.upvotes || 0;
+
+  if (trade.voted) {
+    state.voted.add(trade.id);
+  }
+});
 
     buildFacetRow();
     render();
@@ -842,13 +924,96 @@ function render(){
   }
   feed.innerHTML = list.map(cardTemplate).join('');
 
-  feed.querySelectorAll('[data-vote]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const id = btn.dataset.vote; // FIXED: string id
-      if(state.voted.has(id)){ state.voted.delete(id); state.votes[id] = (state.votes[id] || 0) - 1; }
-      else { state.voted.add(id); state.votes[id] = (state.votes[id] || 0) + 1; }
-      render();
-    });
+  feed
+  .querySelectorAll("[data-vote]")
+  .forEach((btn) => {
+    btn.addEventListener(
+      "click",
+      async () => {
+        const tradeId =
+          btn.dataset.vote;
+
+        const currentlyVoted =
+          state.voted.has(tradeId);
+
+        const desiredVote =
+          !currentlyVoted;
+
+        /*
+         * Prevent rapid double-clicks while the request is running.
+         */
+        btn.disabled = true;
+        btn.setAttribute(
+          "aria-busy",
+          "true"
+        );
+
+        try {
+          const response = await fetch(
+            "/api/vote",
+            {
+              method: "POST",
+
+              headers: {
+                "Content-Type":
+                  "application/json",
+              },
+
+              body: JSON.stringify({
+                tradeId,
+                voterId: VOTER_ID,
+                voted: desiredVote,
+              }),
+            }
+          );
+
+          const result =
+            await response.json();
+
+          if (!response.ok) {
+            throw new Error(
+              result?.error ||
+                `Vote request failed (${response.status})`
+            );
+          }
+
+          state.votes[tradeId] =
+            Number(
+              result.upvotes || 0
+            );
+
+          if (result.voted) {
+            state.voted.add(
+              tradeId
+            );
+          } else {
+            state.voted.delete(
+              tradeId
+            );
+          }
+
+          /*
+           * Re-render using the authoritative state returned
+           * by Neon.
+           */
+          render();
+        } catch (error) {
+          console.error(
+            "Could not save vote:",
+            error
+          );
+
+          btn.disabled = false;
+          btn.removeAttribute(
+            "aria-busy"
+          );
+
+          window.alert(
+            "Your vote could not be saved. Please try again."
+          );
+        }
+      }
+    );
   });
 
   feed.querySelectorAll('[data-modal]').forEach(btn => {
