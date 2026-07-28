@@ -4,14 +4,14 @@ import {
 
 /*
  * ============================================================
- * MANUAL FORM 4 IMPORT ENDPOINT
+ * PROTECTED FORM 4 IMPORT ENDPOINT
  * ============================================================
  *
- * This endpoint is separate from the public feed endpoint.
+ * Vercel Cron sends:
  *
- * It currently accepts GET or POST so it is easy to test
- * manually in a browser. We will secure it before connecting
- * it to a scheduled Vercel Cron Job.
+ * Authorization: Bearer <CRON_SECRET>
+ *
+ * Manual requests must provide the same header.
  */
 
 function queryValue(
@@ -21,6 +21,7 @@ function queryValue(
 ) {
   if (
     req.body &&
+    typeof req.body === "object" &&
     req.body[key] !== undefined
   ) {
     return req.body[key];
@@ -44,9 +45,35 @@ function toBoolean(
     return fallback;
   }
 
+  if (
+    value === true ||
+    value === false
+  ) {
+    return value;
+  }
+
   return (
     String(value).toLowerCase() !==
     "false"
+  );
+}
+
+function isAuthorized(req) {
+  const cronSecret =
+    process.env.CRON_SECRET;
+
+  if (!cronSecret) {
+    throw new Error(
+      "Missing CRON_SECRET environment variable."
+    );
+  }
+
+  const authorization =
+    req.headers?.authorization || "";
+
+  return (
+    authorization ===
+    `Bearer ${cronSecret}`
   );
 }
 
@@ -54,6 +81,11 @@ export default async function handler(
   req,
   res
 ) {
+  res.setHeader(
+    "Cache-Control",
+    "no-store, max-age=0"
+  );
+
   try {
     if (
       req.method !== "GET" &&
@@ -65,76 +97,74 @@ export default async function handler(
       );
 
       return res.status(405).json({
-        error:
-          "Method not allowed",
+        success: false,
+        error: "Method not allowed.",
+      });
+    }
+
+    if (!isAuthorized(req)) {
+      return res.status(401).json({
+        success: false,
+        error: "Unauthorized.",
       });
     }
 
     const result =
       await importForm4Trades({
-        role:
+        role: queryValue(
+          req,
+          "role",
+          "ceo"
+        ),
+
+        limit: queryValue(
+          req,
+          "limit",
+          10
+        ),
+
+        offset: queryValue(
+          req,
+          "offset",
+          0
+        ),
+
+        maxPages: queryValue(
+          req,
+          "max_pages",
+          3
+        ),
+
+        maxAiSummaries: queryValue(
+          req,
+          "max_ai",
+          12
+        ),
+
+        minimumTradeValue: queryValue(
+          req,
+          "min_value",
+          1000
+        ),
+
+        skipZeroRows: toBoolean(
           queryValue(
             req,
-            "role",
-            "ceo"
-          ),
-
-        limit:
-          queryValue(
-            req,
-            "limit",
-            10
-          ),
-
-        offset:
-          queryValue(
-            req,
-            "offset",
-            0
-          ),
-
-        maxPages:
-          queryValue(
-            req,
-            "max_pages",
-            3
-          ),
-
-        maxAiSummaries:
-          queryValue(
-            req,
-            "max_ai",
-            12
-          ),
-
-        minimumTradeValue:
-          queryValue(
-            req,
-            "min_value",
-            1000
-          ),
-
-        skipZeroRows:
-          toBoolean(
-            queryValue(
-              req,
-              "skip_zero_rows",
-              true
-            ),
+            "skip_zero_rows",
             true
           ),
+          true
+        ),
 
-        startDate:
-          queryValue(
-            req,
-            "start_date"
-          ),
+        startDate: queryValue(
+          req,
+          "start_date"
+        ),
 
-        endDate:
-          queryValue(
-            req,
-            "end_date"
-          ),
+        endDate: queryValue(
+          req,
+          "end_date"
+        ),
       });
 
     return res.status(200).json(
@@ -146,20 +176,20 @@ export default async function handler(
       error
     );
 
-    return res.status(500).json({
-      success: false,
+    const missingSecret =
+      String(
+        error?.message || ""
+      ).includes("CRON_SECRET");
 
-      error:
-        "Form 4 import failed.",
-
-      detail:
-        process.env.NODE_ENV ===
-        "production"
-          ? undefined
-          : String(
-              error?.message ||
-                error
-            ),
-    });
+    return res
+      .status(
+        missingSecret ? 500 : 500
+      )
+      .json({
+        success: false,
+        error: missingSecret
+          ? "Importer authentication is not configured."
+          : "Form 4 import failed.",
+      });
   }
 }
