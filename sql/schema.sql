@@ -14,6 +14,10 @@ CREATE TABLE IF NOT EXISTS trades (
   reporting_owner_id TEXT,
   reporting_owner_key TEXT NOT NULL,
 
+  -- Preserve the source name and a reader-facing display name separately.
+  raw_ceo_name TEXT,
+  display_ceo_name TEXT,
+
   ceo TEXT NOT NULL,
   officer_title TEXT,
 
@@ -23,6 +27,11 @@ CREATE TABLE IF NOT EXISTS trades (
 
   trade_type TEXT NOT NULL,
   trade_type_label TEXT NOT NULL,
+
+  -- Broad feed category and subtype metadata.
+  card_category TEXT NOT NULL DEFAULT 'other',
+  market_action TEXT,
+  compensation_subtypes JSONB NOT NULL DEFAULT '[]'::jsonb,
 
   -- Latest transaction date, used for feed sorting.
   transaction_date DATE NOT NULL,
@@ -35,15 +44,33 @@ CREATE TABLE IF NOT EXISTS trades (
 
   -- Values as reported by the source before unit conversion.
   reported_shares NUMERIC(24, 6) NOT NULL DEFAULT 0,
-  reported_average_price NUMERIC(24, 2) NOT NULL DEFAULT 0,
-  reported_total_value NUMERIC(24, 2) NOT NULL DEFAULT 0,
+  reported_average_price NUMERIC(24, 2),
+  reported_total_value NUMERIC(24, 2),
 
   -- Checked economic values used by the public feed.
   shares NUMERIC(24, 6) NOT NULL DEFAULT 0,
-  average_price NUMERIC(24, 2) NOT NULL DEFAULT 0,
-  total_value NUMERIC(24, 2) NOT NULL DEFAULT 0,
+  average_price NUMERIC(24, 2),
+  total_value NUMERIC(24, 2),
 
   economic_unit_label TEXT NOT NULL DEFAULT 'securities',
+
+  -- Explicit security totals keep shares and options separate.
+  common_shares_acquired NUMERIC(24, 6) NOT NULL DEFAULT 0,
+  common_shares_disposed NUMERIC(24, 6) NOT NULL DEFAULT 0,
+  shares_withheld NUMERIC(24, 6) NOT NULL DEFAULT 0,
+  net_common_shares NUMERIC(24, 6) NOT NULL DEFAULT 0,
+  options_acquired NUMERIC(24, 6) NOT NULL DEFAULT 0,
+  options_disposed NUMERIC(24, 6) NOT NULL DEFAULT 0,
+  average_exercise_price NUMERIC(24, 2),
+  security_totals JSONB NOT NULL DEFAULT '{}'::jsonb,
+
+  price_basis TEXT,
+  value_basis TEXT,
+
+  ranking_eligible BOOLEAN NOT NULL DEFAULT FALSE,
+  performance_eligible BOOLEAN NOT NULL DEFAULT FALSE,
+
+  permanent_slug TEXT,
 
   ads_ratio NUMERIC(24, 6),
   ads_conversion_applied BOOLEAN NOT NULL DEFAULT FALSE,
@@ -119,6 +146,27 @@ ON trades (trade_type);
 
 CREATE INDEX IF NOT EXISTS trades_total_value_idx
 ON trades (total_value DESC);
+
+
+CREATE INDEX IF NOT EXISTS trades_card_category_idx
+ON trades (card_category);
+
+
+CREATE INDEX IF NOT EXISTS trades_market_action_idx
+ON trades (market_action);
+
+
+CREATE INDEX IF NOT EXISTS trades_ranking_eligible_idx
+ON trades (ranking_eligible, trade_type, total_value DESC);
+
+
+CREATE INDEX IF NOT EXISTS trades_performance_eligible_idx
+ON trades (performance_eligible, trade_type, transaction_date DESC);
+
+
+CREATE UNIQUE INDEX IF NOT EXISTS trades_permanent_slug_idx
+ON trades (permanent_slug)
+WHERE permanent_slug IS NOT NULL;
 
 
 -- ============================================================
