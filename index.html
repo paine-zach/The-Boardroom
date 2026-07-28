@@ -46,8 +46,7 @@
   header.site{
     background:linear-gradient(180deg, var(--navy) 0%, var(--navy-deep) 100%);
     border-bottom:3px solid var(--accent);
-    position:sticky;
-    top:0;
+    position:relative;
     z-index:30;
   }
   .header-inner{
@@ -396,6 +395,127 @@
     }
   }
 
+
+  .controls-shell{
+    position:sticky;
+    top:0;
+    z-index:35;
+    background:var(--paper);
+    transform:translateY(0);
+    transition:
+      transform 0.22s ease,
+      box-shadow 0.22s ease,
+      border-color 0.22s ease;
+    will-change:transform;
+    border-bottom:1px solid transparent;
+  }
+
+  .controls-shell.controls-past{
+    box-shadow:0 10px 24px rgba(14,25,48,0.12);
+    border-bottom-color:var(--line);
+  }
+
+  .controls-shell.controls-past .facet-row{
+    padding-bottom:10px;
+  }
+
+  .controls-shell.controls-hidden{
+    transform:translateY(calc(-100% - 4px));
+    pointer-events:none;
+  }
+
+  .feed-column{
+    min-width:0;
+  }
+
+  .feed-pagination{
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    gap:9px;
+    padding:20px 0 4px;
+  }
+
+  .load-more-button{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:11.5px;
+    letter-spacing:0.04em;
+    text-transform:uppercase;
+    border:1px solid var(--navy);
+    background:var(--card);
+    color:var(--navy);
+    padding:9px 16px;
+    border-radius:var(--radius);
+    cursor:pointer;
+  }
+
+  .load-more-button:hover{
+    background:#EEF2FA;
+  }
+
+  .load-more-button:disabled{
+    cursor:wait;
+    opacity:0.65;
+  }
+
+  .load-more-status{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:11px;
+    color:var(--ink-soft);
+    text-align:center;
+  }
+
+  .top-button{
+    position:fixed;
+    right:22px;
+    bottom:22px;
+    z-index:60;
+    display:flex;
+    align-items:center;
+    gap:7px;
+    font-family:'IBM Plex Mono', monospace;
+    font-size:11px;
+    letter-spacing:0.05em;
+    text-transform:uppercase;
+    border:1px solid var(--navy);
+    background:var(--navy);
+    color:var(--header-fg);
+    padding:9px 12px;
+    border-radius:3px;
+    cursor:pointer;
+    box-shadow:0 8px 24px rgba(14,25,48,0.22);
+    opacity:0;
+    transform:translateY(10px);
+    pointer-events:none;
+    transition:
+      opacity 0.18s ease,
+      transform 0.18s ease;
+  }
+
+  .top-button.visible{
+    opacity:1;
+    transform:translateY(0);
+    pointer-events:auto;
+  }
+
+  .top-button svg{
+    width:14px;
+    height:14px;
+  }
+
+  @media (max-width: 620px){
+    .controls-shell.controls-past{
+      max-height:68vh;
+      overflow-y:auto;
+      overscroll-behavior:contain;
+    }
+
+    .top-button{
+      right:14px;
+      bottom:14px;
+    }
+  }
+
 </style>
 </head>
 <body>
@@ -424,30 +544,40 @@
   <p>Disclaimer: The information on this website is based on publicly available SEC filings and may include AI-generated summaries and calculated estimates. It is simplified for readability and does not constitute financial, legal, or investment advice. Executive stock sales can occur for many reasons, and a reported transaction should not be interpreted by itself as evidence of an executive's outlook, misconduct, or future stock performance. Users should review the original SEC filing before relying on any summary or calculation.</p>
 </div>
 
-<div class="toolbar">
-  <div class="sort-tabs" id="sortTabs">
-    <button data-sort="latest" class="active">Latest</button>
-    <button data-sort="largest">Biggest Trades</button>
+<div class="controls-shell" id="controlsShell">
+  <div class="toolbar">
+    <div class="sort-tabs" id="sortTabs">
+      <button data-sort="latest" class="active">Latest</button>
+      <button data-sort="largest">Biggest Trades</button>
+    </div>
+    <div class="toolbar-actions">
+      <button class="show-all-toggle" id="showAllToggle" type="button">Show all trades</button>
+      <div class="result-count" id="resultCount">— total trades</div>
+    </div>
   </div>
-  <div class="toolbar-actions">
-    <button class="show-all-toggle" id="showAllToggle" type="button">Show all trades</button>
-    <div class="result-count" id="resultCount">— trades</div>
+
+  <div class="filter-row" id="filterRow"></div>
+
+  <div class="facet-row" id="facetRow">
+    <span class="facet-label">Refine:</span>
+    <select id="companyFilter"></select>
+    <select id="ceoFilter"></select>
+    <select id="yearFilter"></select>
+    <select id="planFilter"></select>
+    <select id="valueFilter"></select>
   </div>
-</div>
-
-<div class="filter-row" id="filterRow"></div>
-
-<div class="facet-row" id="facetRow">
-  <span class="facet-label">Refine:</span>
-  <select id="companyFilter"></select>
-  <select id="ceoFilter"></select>
-  <select id="yearFilter"></select>
-  <select id="planFilter"></select>
-  <select id="valueFilter"></select>
 </div>
 
 <main class="layout">
-  <section class="feed" id="feed"></section>
+  <div class="feed-column">
+    <section class="feed" id="feed"></section>
+    <div class="feed-pagination" id="feedPagination">
+      <button class="load-more-button" id="loadMoreButton" type="button">
+        Load more trades
+      </button>
+      <div class="load-more-status" id="loadMoreStatus"></div>
+    </div>
+  </div>
 
   <aside class="sidebar">
     <div class="side-box">
@@ -487,6 +617,13 @@
   <div class="modal-panel" id="modalPanel" role="dialog" aria-modal="true"></div>
 </div>
 
+<button class="top-button" id="topButton" type="button" aria-label="Return to top">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+    <polyline points="18 15 12 9 6 15"></polyline>
+  </svg>
+  Top
+</button>
+
 <script>
 let TRADES = [];
 
@@ -495,6 +632,9 @@ const VOTER_STORAGE_KEY =
 
 const DEFAULT_MINIMUM_MARKET_VALUE =
   100_000;
+
+const API_PAGE_SIZE = 100;
+const DISPLAY_PAGE_SIZE = 100;
 
 const NEW_WINDOW_MS =
   14 * 24 * 60 * 60 * 1000;
@@ -549,7 +689,10 @@ let state = {
   valueBand: "",
   showAll: false,
   loading: false,
+  allLoaded: false,
   total: 0,
+  loaded: 0,
+  visibleCount: DISPLAY_PAGE_SIZE,
   voted: new Set(),
   votes: {},
 };
@@ -1133,16 +1276,12 @@ function updateShowAllButton() {
     return;
   }
 
-  button.disabled = state.loading;
   button.classList.toggle(
     "active",
     state.showAll
   );
 
-  if (state.loading) {
-    button.textContent =
-      "Loading…";
-  } else if (state.showAll) {
+  if (state.showAll) {
     button.textContent =
       "Use $100K minimum";
   } else {
@@ -1151,55 +1290,138 @@ function updateShowAllButton() {
   }
 }
 
+function syncVoteState() {
+  state.votes = {};
+  state.voted = new Set();
+
+  TRADES.forEach((trade) => {
+    state.votes[trade.id] =
+      trade.upvotes;
+
+    if (trade.voted) {
+      state.voted.add(
+        trade.id
+      );
+    }
+  });
+}
+
 async function loadTradesFromApi() {
+  if (state.loading) {
+    return;
+  }
+
   state.loading = true;
+  state.allLoaded = false;
   updateShowAllButton();
 
+  const tradeMap = new Map();
+  let offset = 0;
+  let hasMore = true;
+  let newestFetchedAt = null;
+
   try {
-    const params =
-      new URLSearchParams({
-        voter_id: VOTER_ID,
-        limit: "100",
-        sort:
-          state.sort === "largest"
-            ? "largest"
-            : "latest",
-      });
+    while (hasMore) {
+      const params =
+        new URLSearchParams({
+          voter_id: VOTER_ID,
+          limit: String(API_PAGE_SIZE),
+          offset: String(offset),
 
-    if (state.showAll) {
-      params.set(
-        "show_all",
-        "true"
-      );
-    } else {
-      params.set(
-        "min_value",
-        String(
-          DEFAULT_MINIMUM_MARKET_VALUE
-        )
-      );
-    }
+          // Fetch the complete database result set.
+          // The $100K view is applied locally so every
+          // filter can operate across every stored trade.
+          show_all: "true",
+          sort: "latest",
+        });
 
-    const response = await fetch(
-      `/api/form4?${params.toString()}`,
-      {
-        cache: "no-store",
+      const response = await fetch(
+        `/api/form4?${params.toString()}`,
+        {
+          cache: "no-store",
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(
+          `API error ${response.status}`
+        );
       }
-    );
 
-    if (!response.ok) {
-      throw new Error(
-        `API error ${response.status}`
-      );
+      const data =
+        await response.json();
+
+      const incoming =
+        Array.isArray(data?.trades)
+          ? data.trades
+          : [];
+
+      newestFetchedAt =
+        data?.fetchedAt ||
+        newestFetchedAt;
+
+      state.total =
+        requiredNumber(
+          data?.total,
+          state.total
+        );
+
+      incoming
+        .map(normalizeTrade)
+        .forEach((trade) => {
+          tradeMap.set(
+            trade.id,
+            trade
+          );
+        });
+
+      TRADES =
+        Array.from(
+          tradeMap.values()
+        );
+
+      state.loaded =
+        TRADES.length;
+
+      syncVoteState();
+
+      // Render progressively so the first 100 cards
+      // appear quickly while later API pages load.
+      buildFacetRow();
+      render();
+
+      const pagination =
+        data?.pagination || {};
+
+      hasMore =
+        Boolean(
+          pagination.hasMore
+        );
+
+      if (!hasMore) {
+        break;
+      }
+
+      const nextOffset =
+        requiredNumber(
+          pagination.nextOffset,
+          offset + incoming.length
+        );
+
+      if (
+        nextOffset <= offset ||
+        incoming.length === 0
+      ) {
+        throw new Error(
+          "API pagination did not advance."
+        );
+      }
+
+      offset =
+        nextOffset;
     }
 
-    const data =
-      await response.json();
-
-    const incoming =
-      Array.isArray(data?.trades)
-        ? data.trades
-        : [];
+    state.allLoaded = true;
 
     const lastUpdated =
       document.getElementById(
@@ -1208,36 +1430,12 @@ async function loadTradesFromApi() {
 
     if (lastUpdated) {
       lastUpdated.textContent =
-  data?.fetchedAt
-    ? new Date(
-        data.fetchedAt
-      ).toLocaleString()
-    : "N/A";
+        newestFetchedAt
+          ? new Date(
+              newestFetchedAt
+            ).toLocaleString()
+          : "N/A";
     }
-
-    TRADES = incoming.map(
-      normalizeTrade
-    );
-
-    state.total =
-      requiredNumber(
-        data?.total,
-        TRADES.length
-      );
-
-    state.votes = {};
-    state.voted = new Set();
-
-    TRADES.forEach((trade) => {
-      state.votes[trade.id] =
-        trade.upvotes;
-
-      if (trade.voted) {
-        state.voted.add(
-          trade.id
-        );
-      }
-    });
 
     buildFacetRow();
     render();
@@ -1247,20 +1445,29 @@ async function loadTradesFromApi() {
       error
     );
 
-    const feed =
+    if (!TRADES.length) {
+      const feed =
+        document.getElementById(
+          "feed"
+        );
+
+      feed.innerHTML =
+        '<div class="no-results">Could not load live Form 4 data from /api/form4 yet.</div>';
+    }
+
+    const status =
       document.getElementById(
-        "feed"
+        "loadMoreStatus"
       );
 
-    feed.innerHTML =
-      '<div class="no-results">Could not load live Form 4 data from /api/form4 yet.</div>';
-
-    document.getElementById(
-      "resultCount"
-    ).textContent = "0 trades";
+    if (status) {
+      status.textContent =
+        "Some trades could not be loaded. The site will retry automatically.";
+    }
   } finally {
     state.loading = false;
     updateShowAllButton();
+    render();
   }
 }
 
@@ -1332,6 +1539,9 @@ function buildFilterRow() {
                     ? null
                     : key;
 
+                state.visibleCount =
+                  DISPLAY_PAGE_SIZE;
+
                 render();
               }
             );
@@ -1362,6 +1572,10 @@ function buildFilterRow() {
     () => {
       state.activeCategory = null;
       resetFacets();
+
+      state.visibleCount =
+        DISPLAY_PAGE_SIZE;
+
       render();
     }
   );
@@ -1486,6 +1700,9 @@ function buildFacetRow() {
         Boolean(element.value)
       );
 
+      state.visibleCount =
+        DISPLAY_PAGE_SIZE;
+
       render();
     };
   };
@@ -1542,6 +1759,27 @@ function resetFacets() {
 
 function getFiltered() {
   let list = TRADES.slice();
+
+  if (!state.showAll) {
+    list = list.filter((trade) => {
+      if (
+        !["buy", "sell"].includes(
+          trade.tradeType
+        )
+      ) {
+        return true;
+      }
+
+      const value =
+        nullableNumber(trade.value);
+
+      return (
+        value !== null &&
+        value >=
+          DEFAULT_MINIMUM_MARKET_VALUE
+      );
+    });
+  }
 
   if (state.activeCategory) {
     list = list.filter(
@@ -2159,25 +2397,100 @@ function render() {
     });
 
   const list = getFiltered();
+
+  const visibleList =
+    list.slice(
+      0,
+      state.visibleCount
+    );
+
   const feed =
     document.getElementById(
       "feed"
     );
 
+  const totalCount =
+    Math.max(
+      state.total,
+      TRADES.length
+    );
+
   document.getElementById(
     "resultCount"
   ).textContent =
-    `${list.length} trade${list.length === 1 ? "" : "s"}`;
+    `${totalCount.toLocaleString("en-US")} total trade${totalCount === 1 ? "" : "s"}`;
+
+  const pagination =
+    document.getElementById(
+      "feedPagination"
+    );
+
+  const loadMoreButton =
+    document.getElementById(
+      "loadMoreButton"
+    );
+
+  const loadMoreStatus =
+    document.getElementById(
+      "loadMoreStatus"
+    );
+
+  const remaining =
+    Math.max(
+      0,
+      list.length -
+        visibleList.length
+    );
+
+  if (loadMoreButton) {
+    loadMoreButton.hidden =
+      remaining === 0;
+
+    loadMoreButton.disabled =
+      state.loading &&
+      !state.allLoaded;
+
+    loadMoreButton.textContent =
+      remaining > 0
+        ? `Load ${Math.min(
+            DISPLAY_PAGE_SIZE,
+            remaining
+          ).toLocaleString("en-US")} more trades`
+        : "All matching trades shown";
+  }
+
+  if (loadMoreStatus) {
+    if (
+      state.loading &&
+      !state.allLoaded
+    ) {
+      loadMoreStatus.textContent =
+        `Loading all trades: ${TRADES.length.toLocaleString("en-US")} of ${totalCount.toLocaleString("en-US")} loaded`;
+    } else {
+      loadMoreStatus.textContent =
+        `Showing ${visibleList.length.toLocaleString("en-US")} of ${list.length.toLocaleString("en-US")} matching trades`;
+    }
+  }
+
+  if (pagination) {
+    pagination.hidden =
+      !state.loading &&
+      list.length === 0;
+  }
 
   if (!list.length) {
     feed.innerHTML =
-      '<div class="no-results">No trades match your search or filters. Try clearing a filter or using Show all trades.</div>';
+      state.loading
+        ? '<div class="no-results">Loading trades…</div>'
+        : '<div class="no-results">No trades match your search or filters. Try clearing a filter or using Show all trades.</div>';
 
     return;
   }
 
   feed.innerHTML =
-    list.map(cardTemplate).join("");
+    visibleList
+      .map(cardTemplate)
+      .join("");
 
   feed
     .querySelectorAll(
@@ -2249,7 +2562,10 @@ document.getElementById(
     state.sort =
       button.dataset.sort;
 
-    await loadTradesFromApi();
+    state.visibleCount =
+      DISPLAY_PAGE_SIZE;
+
+    render();
   }
 );
 
@@ -2261,7 +2577,11 @@ document.getElementById(
     state.showAll =
       !state.showAll;
 
-    await loadTradesFromApi();
+    state.visibleCount =
+      DISPLAY_PAGE_SIZE;
+
+    updateShowAllButton();
+    render();
   }
 );
 
@@ -2279,6 +2599,9 @@ document.getElementById(
         state.search =
           event.target.value;
 
+        state.visibleCount =
+          DISPLAY_PAGE_SIZE;
+
         render();
       },
       120
@@ -2286,7 +2609,130 @@ document.getElementById(
   }
 );
 
+document.getElementById(
+  "loadMoreButton"
+).addEventListener(
+  "click",
+  () => {
+    state.visibleCount +=
+      DISPLAY_PAGE_SIZE;
+
+    render();
+  }
+);
+
+function setupScrollControls() {
+  const controls =
+    document.getElementById(
+      "controlsShell"
+    );
+
+  const topButton =
+    document.getElementById(
+      "topButton"
+    );
+
+  if (!controls || !topButton) {
+    return;
+  }
+
+  let lastScrollY =
+    window.scrollY;
+
+  let ticking = false;
+
+  const update = () => {
+    const currentScrollY =
+      window.scrollY;
+
+    const delta =
+      currentScrollY -
+      lastScrollY;
+
+    const controlsTop =
+      controls.offsetTop;
+
+    const pastControls =
+      currentScrollY >
+      controlsTop + 20;
+
+    controls.classList.toggle(
+      "controls-past",
+      pastControls
+    );
+
+    if (!pastControls) {
+      controls.classList.remove(
+        "controls-hidden"
+      );
+    } else if (delta < -5) {
+      // Reveal the filters whenever the
+      // visitor scrolls upward.
+      controls.classList.remove(
+        "controls-hidden"
+      );
+    } else if (delta > 5) {
+      // Hide them while scrolling downward.
+      controls.classList.add(
+        "controls-hidden"
+      );
+    }
+
+    topButton.classList.toggle(
+      "visible",
+      currentScrollY > 700
+    );
+
+    lastScrollY =
+      currentScrollY;
+
+    ticking = false;
+  };
+
+  window.addEventListener(
+    "scroll",
+    () => {
+      if (!ticking) {
+        window.requestAnimationFrame(
+          update
+        );
+
+        ticking = true;
+      }
+    },
+    {
+      passive: true,
+    }
+  );
+
+  topButton.addEventListener(
+    "click",
+    () => {
+      controls.classList.remove(
+        "controls-hidden"
+      );
+
+      const reduceMotion =
+        window.matchMedia(
+          "(prefers-reduced-motion: reduce)"
+        ).matches;
+
+      window.scrollTo({
+        top: 0,
+        behavior:
+          reduceMotion
+            ? "auto"
+            : "smooth",
+      });
+    }
+  );
+
+  update();
+}
+
 buildFilterRow();
+updateShowAllButton();
+setupScrollControls();
 loadTradesFromApi();
 
 setInterval(
