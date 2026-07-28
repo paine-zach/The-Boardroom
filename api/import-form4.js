@@ -109,6 +109,47 @@ export default async function handler(
       });
     }
 
+    const refreshExisting =
+      toBoolean(
+        queryValue(
+          req,
+          "refresh_existing",
+          false
+        ),
+        false
+      );
+
+    /*
+     * Refresh mode can rewrite and consolidate stored cards.
+     * Require an authenticated POST plus a deliberate confirmation
+     * phrase. Normal GET/cron imports remain unchanged.
+     */
+    if (
+      refreshExisting &&
+      req.method !== "POST"
+    ) {
+      return res.status(405).json({
+        success: false,
+        error:
+          "Existing-card refresh requires POST.",
+      });
+    }
+
+    if (
+      refreshExisting &&
+      queryValue(
+        req,
+        "confirm_refresh"
+      ) !==
+        "REFRESH_EXISTING_TRADES"
+    ) {
+      return res.status(400).json({
+        success: false,
+        error:
+          "Refresh confirmation is missing or invalid.",
+      });
+    }
+
     const result =
       await importForm4Trades({
         role: queryValue(
@@ -155,6 +196,8 @@ export default async function handler(
           ),
           true
         ),
+
+        refreshExisting,
 
         startDate: queryValue(
           req,
