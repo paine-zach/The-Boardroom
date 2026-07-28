@@ -394,13 +394,27 @@
 
   .transaction-line{
     display:grid;
-    grid-template-columns:minmax(92px, 0.9fr) minmax(90px, 0.9fr) minmax(80px, 0.8fr) minmax(80px, 0.8fr);
+    grid-template-columns:minmax(116px, 1.05fr) minmax(100px, 1fr) minmax(84px, 0.8fr) minmax(84px, 0.8fr);
     gap:10px;
     padding:8px 11px;
     border-bottom:1px solid var(--line-soft);
     font-family:'IBM Plex Mono', monospace;
     font-size:11px;
     color:var(--ink-soft);
+  }
+
+  .transaction-line .line-code{
+    display:block;
+    margin-top:2px;
+    font-size:9.5px;
+    color:var(--accent-ink);
+  }
+
+  .txn-direction{
+    display:inline-block;
+    margin-left:4px;
+    color:var(--ink-soft);
+    font-size:9.5px;
   }
 
   .transaction-line:last-child{
@@ -612,7 +626,12 @@
 
   <aside class="sidebar">
     <div class="side-box">
-      <p class="sample-note">Source: SEC Form 4 filings. Updated when new filings post.<br>Last updated: <strong id="lastUpdated">—</strong></p>
+      <p class="sample-note">
+        Source: SEC Form 4 filings.<br>
+        Data refreshed: <strong id="dataRefreshed">—</strong><br>
+        Latest filing available: <strong id="latestFilingDate">—</strong><br>
+        Coverage: <strong id="coverageRange">—</strong>
+      </p>
     </div>
 
     <div class="side-box">
@@ -628,9 +647,11 @@
         <dt>S — Open market sell</dt>
         <dd>Insider sold shares on the open market.</dd>
         <dt>A — Award / grant</dt>
-        <dd>Shares granted as compensation, e.g. RSU vesting — not a cash transaction.</dd>
+        <dd>Shares or derivative securities granted as compensation, not an open-market purchase.</dd>
+        <dt>F — Tax withholding</dt>
+        <dd>Shares withheld or disposed to satisfy a tax or exercise-price obligation. This is not treated as an open-market sale.</dd>
         <dt>M — Option exercise</dt>
-        <dd>Insider exercised stock options, converting them into shares.</dd>
+        <dd>Previously granted options were exercised. Options and common shares remain separate in the displayed totals.</dd>
         <dt>10b5-1 plan</dt>
         <dd>A pre-scheduled trading plan set up in advance, often used to avoid timing questions.</dd>
       </dl>
@@ -668,30 +689,40 @@ const API_PAGE_SIZE = 100;
 const DISPLAY_PAGE_SIZE = 100;
 
 const NEW_WINDOW_MS =
-  14 * 24 * 60 * 60 * 1000;
-
-const NEW_VOTE_THRESHOLD = 5;
+  7 * 24 * 60 * 60 * 1000;
 
 const CATEGORY_META = {
   buy: {
     label: "Buy",
     color: "var(--tab-buy)",
     group: "market",
+    showInFilter: true,
   },
   sell: {
     label: "Sell",
     color: "var(--tab-sell)",
     group: "market",
+    showInFilter: true,
   },
+  compensation: {
+    label: "Awards / Grants & Options",
+    color: "var(--tab-award)",
+    group: "comp",
+    showInFilter: true,
+  },
+
+  // Legacy types remain readable until the database is rebuilt.
   award: {
     label: "Award / Grant",
     color: "var(--tab-award)",
     group: "comp",
+    showInFilter: false,
   },
   option: {
     label: "Option Exercise",
     color: "var(--tab-option)",
     group: "comp",
+    showInFilter: false,
   },
 };
 
@@ -723,6 +754,11 @@ let state = {
   allLoaded: false,
   total: 0,
   loaded: 0,
+  coverage: {
+    earliestFilingDate: null,
+    latestFilingDate: null,
+    dataUpdatedAt: null,
+  },
   visibleCount: DISPLAY_PAGE_SIZE,
   voted: new Set(),
   votes: {},
@@ -1023,7 +1059,18 @@ function displayUnitLabel(
       : "Shares";
   }
 
-  return "Securities";
+  if (
+    normalized === "option" ||
+    normalized === "options"
+  ) {
+    return Number(count) === 1
+      ? "Option"
+      : "Options";
+  }
+
+  return Number(count) === 1
+    ? "Security"
+    : "Securities";
 }
 
 function getSinceTradePerformance(trade) {
@@ -1067,6 +1114,43 @@ function valueBand(value) {
   return "gt25m";
 }
 
+function normalizeSecurityTotals(value) {
+  const source =
+    value && typeof value === "object"
+      ? value
+      : {};
+
+  return {
+    commonSharesAcquired: requiredNumber(
+      source.commonSharesAcquired,
+      0
+    ),
+    commonSharesDisposed: requiredNumber(
+      source.commonSharesDisposed,
+      0
+    ),
+    sharesWithheld: requiredNumber(
+      source.sharesWithheld,
+      0
+    ),
+    netCommonShares: requiredNumber(
+      source.netCommonShares,
+      0
+    ),
+    optionsAcquired: requiredNumber(
+      source.optionsAcquired,
+      0
+    ),
+    optionsDisposed: requiredNumber(
+      source.optionsDisposed,
+      0
+    ),
+    averageExercisePrice: nullableNumber(
+      source.averageExercisePrice
+    ),
+  };
+}
+
 function normalizeLine(line, trade) {
   const source =
     line && typeof line === "object"
@@ -1079,6 +1163,15 @@ function normalizeLine(line, trade) {
     0
   );
 
+  const exercisePrice = nullableNumber(
+    source.exercisePrice
+  );
+
+  const reportedPrice = nullableNumber(
+    source.reportedPrice ??
+      source.price
+  );
+
   return {
     transactionDate:
       source.transactionDate ||
@@ -1087,6 +1180,24 @@ function normalizeLine(line, trade) {
 
     transactionCode:
       source.transactionCode || "",
+
+    acquiredDisposedCode:
+      source.acquiredDisposedCode ||
+      null,
+
+    transactionNature:
+      source.transactionNature ||
+      null,
+
+    compensationSubtype:
+      source.compensationSubtype ||
+      null,
+
+    securityKind:
+      source.securityKind || null,
+
+    sourceTable:
+      source.sourceTable || null,
 
     securityTitle:
       source.securityTitle ||
@@ -1107,9 +1218,19 @@ function normalizeLine(line, trade) {
       trade.economicUnitLabel ||
       "securities",
 
+    reportedPrice,
+    exercisePrice,
+
+    displayPrice: nullableNumber(
+      source.displayPrice ??
+        exercisePrice ??
+        reportedPrice
+    ),
+
     price: nullableNumber(
-      source.reportedPrice ??
-        source.price
+      source.displayPrice ??
+        exercisePrice ??
+        reportedPrice
     ),
 
     value:
@@ -1119,6 +1240,9 @@ function normalizeLine(line, trade) {
             source.calculatedValue ??
               source.value
           ),
+
+    valueRole:
+      source.valueRole || null,
 
     adsRatio:
       nullableNumber(source.adsRatio),
@@ -1137,21 +1261,37 @@ function normalizeLine(line, trade) {
 }
 
 function normalizeTrade(t, index) {
+  const displayCeoName =
+    t.displayCeoName ??
+    t.ceo ??
+    t.reportingOwnerName ??
+    "Unknown CEO";
+
   const trade = {
     id: String(
       t.id ?? `trade-${index}`
     ),
+
+    permanentSlug:
+      t.permanentSlug ??
+      t.id ??
+      `trade-${index}`,
 
     accessionNumber:
       t.accessionNumber ?? null,
 
     reportingOwnerName:
       t.reportingOwnerName ??
-      t.ceo ??
-      "Unknown CEO",
+      t.rawCeoName ??
+      displayCeoName,
 
-    ceo:
-      t.ceo ?? "Unknown CEO",
+    rawCeoName:
+      t.rawCeoName ??
+      t.reportingOwnerName ??
+      displayCeoName,
+
+    displayCeoName,
+    ceo: displayCeoName,
 
     officerTitle:
       t.officerTitle ?? "",
@@ -1167,11 +1307,38 @@ function normalizeTrade(t, index) {
       t.sector ?? "Unknown",
 
     tradeType:
-      t.tradeType ?? "sell",
+      t.tradeType ?? "other",
 
     tradeTypeLabel:
       t.tradeTypeLabel ??
       "Insider Transaction",
+
+    cardCategory:
+      t.cardCategory ??
+      (["buy", "sell"].includes(
+        t.tradeType
+      )
+        ? "market"
+        : ["award", "option", "compensation"].includes(
+            t.tradeType
+          )
+        ? "compensation"
+        : "other"),
+
+    marketAction:
+      t.marketAction ??
+      (["buy", "sell"].includes(
+        t.tradeType
+      )
+        ? t.tradeType
+        : null),
+
+    compensationSubtypes:
+      Array.isArray(
+        t.compensationSubtypes
+      )
+        ? t.compensationSubtypes
+        : [],
 
     transactionDate:
       t.transactionDate ?? null,
@@ -1206,6 +1373,38 @@ function normalizeTrade(t, index) {
     economicUnitLabel:
       t.economicUnitLabel ??
       "securities",
+
+    priceBasis:
+      t.priceBasis ?? null,
+
+    valueBasis:
+      t.valueBasis ?? null,
+
+    securityTotals:
+      normalizeSecurityTotals(
+        t.securityTotals ?? {
+          commonSharesAcquired:
+            t.commonSharesAcquired,
+          commonSharesDisposed:
+            t.commonSharesDisposed,
+          sharesWithheld:
+            t.sharesWithheld,
+          netCommonShares:
+            t.netCommonShares,
+          optionsAcquired:
+            t.optionsAcquired,
+          optionsDisposed:
+            t.optionsDisposed,
+          averageExercisePrice:
+            t.averageExercisePrice,
+        }
+      ),
+
+    rankingEligible:
+      t.rankingEligible === true,
+
+    performanceEligible:
+      t.performanceEligible === true,
 
     adsRatio:
       nullableNumber(t.adsRatio),
@@ -1263,7 +1462,7 @@ function normalizeTrade(t, index) {
 
     title:
       t.title ??
-      "New Form 4 filing",
+      "Form 4 filing",
 
     summary:
       t.summary ??
@@ -1295,6 +1494,52 @@ function normalizeTrade(t, index) {
       : [];
 
   return trade;
+}
+
+function isMarketTrade(trade) {
+  return (
+    trade.cardCategory === "market" ||
+    ["buy", "sell"].includes(
+      trade.tradeType
+    )
+  );
+}
+
+function isCompensationTrade(trade) {
+  return (
+    trade.cardCategory ===
+      "compensation" ||
+    [
+      "compensation",
+      "award",
+      "option",
+    ].includes(trade.tradeType)
+  );
+}
+
+function categoryMatches(
+  trade,
+  category
+) {
+  if (category === "compensation") {
+    return isCompensationTrade(trade);
+  }
+
+  if (category === "buy") {
+    return (
+      trade.marketAction === "buy" ||
+      trade.tradeType === "buy"
+    );
+  }
+
+  if (category === "sell") {
+    return (
+      trade.marketAction === "sell" ||
+      trade.tradeType === "sell"
+    );
+  }
+
+  return trade.tradeType === category;
 }
 
 function updateShowAllButton() {
@@ -1350,6 +1595,7 @@ async function loadTradesFromApi() {
   let offset = 0;
   let hasMore = true;
   let newestFetchedAt = null;
+  let latestCoverage = null;
 
   try {
     while (hasMore) {
@@ -1363,6 +1609,7 @@ async function loadTradesFromApi() {
           // The $100K view is applied locally so every
           // filter can operate across every stored trade.
           show_all: "true",
+          view: "all",
           sort: "latest",
         });
 
@@ -1390,6 +1637,15 @@ async function loadTradesFromApi() {
       newestFetchedAt =
         data?.fetchedAt ||
         newestFetchedAt;
+
+      if (
+        data?.coverage &&
+        typeof data.coverage ===
+          "object"
+      ) {
+        latestCoverage =
+          data.coverage;
+      }
 
       state.total =
         requiredNumber(
@@ -1454,17 +1710,70 @@ async function loadTradesFromApi() {
 
     state.allLoaded = true;
 
-    const lastUpdated =
+    const coverage =
+      latestCoverage || {};
+
+    state.coverage = {
+      earliestFilingDate:
+        coverage.earliestFilingDate ||
+        coverage.earliest_filing_date ||
+        null,
+      latestFilingDate:
+        coverage.latestFilingDate ||
+        coverage.latest_filing_date ||
+        null,
+      dataUpdatedAt:
+        coverage.dataUpdatedAt ||
+        coverage.data_updated_at ||
+        newestFetchedAt ||
+        null,
+    };
+
+    const dataRefreshed =
       document.getElementById(
-        "lastUpdated"
+        "dataRefreshed"
       );
 
-    if (lastUpdated) {
-      lastUpdated.textContent =
-        newestFetchedAt
+    const latestFilingDate =
+      document.getElementById(
+        "latestFilingDate"
+      );
+
+    const coverageRange =
+      document.getElementById(
+        "coverageRange"
+      );
+
+    if (dataRefreshed) {
+      dataRefreshed.textContent =
+        state.coverage.dataUpdatedAt
           ? new Date(
-              newestFetchedAt
+              state.coverage
+                .dataUpdatedAt
             ).toLocaleString()
+          : "N/A";
+    }
+
+    if (latestFilingDate) {
+      latestFilingDate.textContent =
+        formatDate(
+          state.coverage
+            .latestFilingDate
+        );
+    }
+
+    if (coverageRange) {
+      const earliest =
+        state.coverage
+          .earliestFilingDate;
+
+      const latest =
+        state.coverage
+          .latestFilingDate;
+
+      coverageRange.textContent =
+        earliest || latest
+          ? `${formatDate(earliest)}–${formatDate(latest)}`
           : "N/A";
     }
 
@@ -1546,7 +1855,8 @@ function buildFilterRow() {
       )
         .filter(
           ([, meta]) =>
-            meta.group === groupKey
+            meta.group === groupKey &&
+            meta.showInFilter !== false
         )
         .forEach(
           ([key, meta]) => {
@@ -1701,7 +2011,9 @@ function buildFacetRow() {
   const ceos = [
     ...new Set(
       TRADES.map(
-        (trade) => trade.ceo
+        (trade) =>
+          trade.displayCeoName ||
+          trade.ceo
       )
     ),
   ].sort();
@@ -1878,13 +2190,17 @@ function resetFacets() {
 function getFiltered() {
   let list = TRADES.slice();
 
+  // The default homepage is market-only. Compensation
+  // remains available through its dedicated filter.
+  if (!state.activeCategory) {
+    list = list.filter(
+      isMarketTrade
+    );
+  }
+
   if (!state.showAll) {
     list = list.filter((trade) => {
-      if (
-        !["buy", "sell"].includes(
-          trade.tradeType
-        )
-      ) {
+      if (!isMarketTrade(trade)) {
         return true;
       }
 
@@ -1902,8 +2218,10 @@ function getFiltered() {
   if (state.activeCategory) {
     list = list.filter(
       (trade) =>
-        trade.tradeType ===
-        state.activeCategory
+        categoryMatches(
+          trade,
+          state.activeCategory
+        )
     );
   }
 
@@ -1918,6 +2236,8 @@ function getFiltered() {
   if (state.ceo) {
     list = list.filter(
       (trade) =>
+        trade.displayCeoName ===
+          state.ceo ||
         trade.ceo === state.ceo
     );
   }
@@ -1975,7 +2295,8 @@ function getFiltered() {
         const searchable = [
           trade.title,
           trade.summary,
-          trade.ceo,
+          trade.displayCeoName,
+          trade.rawCeoName,
           trade.reportingOwnerName,
           trade.company,
           trade.ticker,
@@ -2006,10 +2327,12 @@ function getFiltered() {
       ) {
         return (
           new Date(
-            b.transactionDate || 0
+            b.filedDate ||
+              b.transactionDate || 0
           ) -
           new Date(
-            a.transactionDate || 0
+            a.filedDate ||
+              a.transactionDate || 0
           )
         );
       }
@@ -2028,10 +2351,12 @@ function getFiltered() {
     list.sort(
       (a, b) =>
         new Date(
-          b.transactionDate || 0
+          b.filedDate ||
+            b.transactionDate || 0
         ) -
         new Date(
-          a.transactionDate || 0
+          a.filedDate ||
+            a.transactionDate || 0
         )
     );
   }
@@ -2040,31 +2365,79 @@ function getFiltered() {
 }
 
 function isNewTrade(trade) {
-  if (!trade.createdAt) {
+  if (!trade.filedDate) {
     return false;
   }
 
-  const created = new Date(
-    trade.createdAt
+  const filed = new Date(
+    `${String(trade.filedDate).slice(0, 10)}T00:00:00`
   );
 
   if (
-    Number.isNaN(created.getTime())
+    Number.isNaN(filed.getTime())
   ) {
     return false;
   }
 
   const age =
-    Date.now() - created.getTime();
-
-  const votes =
-    state.votes[trade.id] || 0;
+    Date.now() - filed.getTime();
 
   return (
     age >= 0 &&
-    age <= NEW_WINDOW_MS &&
-    votes < NEW_VOTE_THRESHOLD
+    age <= NEW_WINDOW_MS
   );
+}
+
+function transactionDirection(line) {
+  if (
+    line.acquiredDisposedCode === "A"
+  ) {
+    return "Acquired";
+  }
+
+  if (
+    line.acquiredDisposedCode === "D"
+  ) {
+    return "Disposed";
+  }
+
+  return "";
+}
+
+function transactionNatureLabel(line) {
+  const labels = {
+    open_market_purchase:
+      "Open-market purchase",
+    open_market_sale:
+      "Open-market sale",
+    award_or_grant:
+      "Award / grant",
+    option_grant:
+      "Option grant",
+    option_exercise:
+      "Option exercise",
+    tax_withholding:
+      "Tax withholding",
+    gift: "Gift",
+    other: "Other transaction",
+  };
+
+  return (
+    labels[line.transactionNature] ||
+    ""
+  );
+}
+
+function lineCodeLabel(line) {
+  const parts = [
+    line.transactionCode
+      ? `Code ${line.transactionCode}`
+      : "",
+    transactionDirection(line),
+    transactionNatureLabel(line),
+  ].filter(Boolean);
+
+  return parts.join(" · ");
 }
 
 function transactionDetailsHtml(trade) {
@@ -2088,7 +2461,10 @@ function transactionDetailsHtml(trade) {
 
       return `
         <div class="transaction-line">
-          <span><strong>${escapeHtml(formatDate(line.transactionDate))}</strong></span>
+          <span>
+            <strong>${escapeHtml(formatDate(line.transactionDate))}</strong>
+            <span class="line-code">${escapeHtml(lineCodeLabel(line))}</span>
+          </span>
           <span>${escapeHtml(formatWholeNumber(units))} ${escapeHtml(unitLabel)}</span>
           <span>${escapeHtml(formatPrice(line.price))}</span>
           <span>${escapeHtml(formatCompactMoney(line.value))}</span>
@@ -2103,9 +2479,139 @@ function transactionDetailsHtml(trade) {
     </details>`;
 }
 
+function compensationStatsHtml(trade) {
+  const totals =
+    trade.securityTotals;
+
+  const stats = [];
+
+  if (totals.commonSharesAcquired > 0) {
+    const acquiredLabel =
+      trade.compensationSubtypes.includes(
+        "award"
+      )
+        ? "Shares awarded"
+        : "Common shares acquired";
+
+    stats.push([
+      acquiredLabel,
+      formatWholeNumber(
+        totals.commonSharesAcquired
+      ),
+    ]);
+  }
+
+  if (totals.sharesWithheld > 0) {
+    stats.push([
+      "Shares withheld",
+      formatWholeNumber(
+        totals.sharesWithheld
+      ),
+    ]);
+  }
+
+  if (
+    totals.commonSharesAcquired > 0 ||
+    totals.commonSharesDisposed > 0
+  ) {
+    stats.push([
+      "Net common shares",
+      formatWholeNumber(
+        totals.netCommonShares
+      ),
+    ]);
+  }
+
+  if (totals.optionsAcquired > 0) {
+    const optionLabel =
+      trade.compensationSubtypes.includes(
+        "option-exercise"
+      )
+        ? "Options exercised"
+        : "Options granted";
+
+    stats.push([
+      optionLabel,
+      formatWholeNumber(
+        totals.optionsAcquired
+      ),
+    ]);
+  }
+
+  if (totals.optionsDisposed > 0) {
+    stats.push([
+      "Options disposed",
+      formatWholeNumber(
+        totals.optionsDisposed
+      ),
+    ]);
+  }
+
+  if (
+    totals.averageExercisePrice !==
+    null
+  ) {
+    stats.push([
+      "Exercise price",
+      formatPrice(
+        totals.averageExercisePrice
+      ),
+    ]);
+  }
+
+  if (!stats.length) {
+    stats.push([
+      "Reported units",
+      formatWholeNumber(
+        trade.shares
+      ),
+    ]);
+  }
+
+  return stats
+    .map(
+      ([label, value]) => `
+        <div class="stat">
+          <span class="stat-label">${escapeHtml(label)}</span>
+          <span class="stat-value">${escapeHtml(value)}</span>
+        </div>`
+    )
+    .join("");
+}
+
+function marketStatsHtml(
+  trade,
+  performanceClass
+) {
+  const unitLabel =
+    displayUnitLabel(
+      trade.economicUnitLabel,
+      trade.shares
+    );
+
+  const valueLabel =
+    trade.marketAction === "buy"
+      ? "Estimated cost"
+      : trade.marketAction === "sell"
+      ? "Estimated proceeds"
+      : "Value";
+
+  return `
+    <div class="stat"><span class="stat-label">${escapeHtml(unitLabel)}</span><span class="stat-value">${escapeHtml(formatWholeNumber(trade.shares))}</span></div>
+    <div class="stat"><span class="stat-label">Weighted avg. price</span><span class="stat-value">${escapeHtml(formatPrice(trade.price))}</span></div>
+    <div class="stat"><span class="stat-label">${escapeHtml(valueLabel)}</span><span class="stat-value">${escapeHtml(formatCompactMoney(trade.value))}</span></div>
+    <div class="stat"><span class="stat-label">Since trade</span><span class="stat-value ${performanceClass}">${escapeHtml(formatPerformance(trade))}</span></div>`;
+}
+
 function cardTemplate(trade) {
+  const metaKey =
+    isCompensationTrade(trade)
+      ? "compensation"
+      : trade.marketAction ||
+        trade.tradeType;
+
   const meta =
-    CATEGORY_META[trade.tradeType] ||
+    CATEGORY_META[metaKey] ||
     CATEGORY_META.sell;
 
   const voted =
@@ -2122,12 +2628,6 @@ function cardTemplate(trade) {
       : performance < 0
       ? "neg"
       : "";
-
-  const unitLabel =
-    displayUnitLabel(
-      trade.economicUnitLabel,
-      trade.shares
-    );
 
   const planBadge =
     trade.tenB51
@@ -2149,6 +2649,14 @@ function cardTemplate(trade) {
 
   const badges =
     `${newBadge}${planBadge}${ownershipBadges}`;
+
+  const statsHtml =
+    isCompensationTrade(trade)
+      ? compensationStatsHtml(trade)
+      : marketStatsHtml(
+          trade,
+          performanceClass
+        );
 
   return `
   <article class="trade-card" style="--tab-color:${meta.color}">
@@ -2173,7 +2681,7 @@ function cardTemplate(trade) {
       <h3 class="case-title">${escapeHtml(trade.title)}</h3>
 
       <div class="case-meta">
-        ${escapeHtml(trade.ceo)}, CEO
+        ${escapeHtml(trade.displayCeoName)}, CEO
         &nbsp;·&nbsp; Traded ${escapeHtml(formatDateRange(trade))}
         &nbsp;·&nbsp; Filed ${escapeHtml(formatDate(trade.filedDate))}
       </div>
@@ -2181,10 +2689,7 @@ function cardTemplate(trade) {
       ${badges ? `<div class="badge-row">${badges}</div>` : ""}
 
       <div class="stat-grid">
-        <div class="stat"><span class="stat-label">${escapeHtml(unitLabel)}</span><span class="stat-value">${escapeHtml(formatWholeNumber(trade.shares))}</span></div>
-        <div class="stat"><span class="stat-label">Avg. Price</span><span class="stat-value">${escapeHtml(formatPrice(trade.price))}</span></div>
-        <div class="stat"><span class="stat-label">Value</span><span class="stat-value">${escapeHtml(formatCompactMoney(trade.value))}</span></div>
-        <div class="stat"><span class="stat-label">Since Trade</span><span class="stat-value ${performanceClass}">${escapeHtml(formatPerformance(trade))}</span></div>
+        ${statsHtml}
       </div>
 
       <p class="case-summary">${escapeHtml(trade.summary)}</p>
@@ -2213,6 +2718,9 @@ const MEANING_BY_TYPE = {
 
   option:
     "This was an option exercise involving previously granted options.",
+
+  compensation:
+    "This filing reports compensation-related activity. Awards, grants, option activity, and tax withholding are not treated as open-market purchases or sales.",
 };
 
 function planMeaning(trade) {
@@ -2222,6 +2730,10 @@ function planMeaning(trade) {
 }
 
 function performanceSentence(trade) {
+  if (isCompensationTrade(trade)) {
+    return "N/A — compensation events are excluded from market-performance rankings.";
+  }
+
   const performance =
     getSinceTradePerformance(trade);
 
@@ -2243,6 +2755,95 @@ function performanceSentence(trade) {
   return `${trade.company}'s calculated market performance is ${direction} ${Math.abs(performance).toFixed(1)}% since the trade date.`;
 }
 
+function compensationTableFooterHtml(
+  trade
+) {
+  const totals =
+    trade.securityTotals;
+
+  const rows = [];
+
+  const addRow = (label, value) => {
+    rows.push(`
+      <tr>
+        <td colspan="3">${escapeHtml(label)}</td>
+        <td>${escapeHtml(value)}</td>
+        <td colspan="2">—</td>
+      </tr>`);
+  };
+
+  if (totals.commonSharesAcquired > 0) {
+    addRow(
+      "Common shares acquired",
+      formatWholeNumber(
+        totals.commonSharesAcquired
+      )
+    );
+  }
+
+  if (totals.commonSharesDisposed > 0) {
+    addRow(
+      "Common shares disposed",
+      formatWholeNumber(
+        totals.commonSharesDisposed
+      )
+    );
+  }
+
+  if (totals.sharesWithheld > 0) {
+    addRow(
+      "Shares withheld",
+      formatWholeNumber(
+        totals.sharesWithheld
+      )
+    );
+  }
+
+  if (
+    totals.commonSharesAcquired > 0 ||
+    totals.commonSharesDisposed > 0
+  ) {
+    addRow(
+      "Net common shares",
+      formatWholeNumber(
+        totals.netCommonShares
+      )
+    );
+  }
+
+  if (totals.optionsAcquired > 0) {
+    addRow(
+      "Options acquired",
+      formatWholeNumber(
+        totals.optionsAcquired
+      )
+    );
+  }
+
+  if (totals.optionsDisposed > 0) {
+    addRow(
+      "Options disposed",
+      formatWholeNumber(
+        totals.optionsDisposed
+      )
+    );
+  }
+
+  if (
+    totals.averageExercisePrice !==
+    null
+  ) {
+    rows.push(`
+      <tr>
+        <td colspan="4">Weighted avg. exercise price</td>
+        <td>${escapeHtml(formatPrice(totals.averageExercisePrice))}</td>
+        <td>—</td>
+      </tr>`);
+  }
+
+  return rows.join("");
+}
+
 function transactionTableHtml(trade) {
   const rows = trade.lines
     .map((line) => {
@@ -2252,10 +2853,16 @@ function transactionTableHtml(trade) {
           line.economicUnits
         );
 
+      const direction =
+        transactionDirection(line);
+
       return `
         <tr>
           <td>${escapeHtml(formatDate(line.transactionDate))}</td>
-          <td>${escapeHtml(line.transactionCode || trade.tradeTypeLabel)}</td>
+          <td>
+            ${escapeHtml(line.transactionCode || trade.tradeTypeLabel)}
+            ${direction ? `<span class="txn-direction">${escapeHtml(direction)}</span>` : ""}
+          </td>
           <td>${escapeHtml(line.securityTitle)}</td>
           <td>${escapeHtml(formatWholeNumber(line.economicUnits))} ${escapeHtml(unitLabel)}</td>
           <td>${escapeHtml(formatPrice(line.price))}</td>
@@ -2264,11 +2871,13 @@ function transactionTableHtml(trade) {
     })
     .join("");
 
-  const unitLabel =
-    displayUnitLabel(
-      trade.economicUnitLabel,
-      trade.shares
-    );
+  const marketFooter = `
+    <tr>
+      <td colspan="3">Total</td>
+      <td>${escapeHtml(formatWholeNumber(trade.shares))} ${escapeHtml(displayUnitLabel(trade.economicUnitLabel, trade.shares))}</td>
+      <td><span class="txn-direction">Weighted avg.</span><br>${escapeHtml(formatPrice(trade.price))}</td>
+      <td>${escapeHtml(formatCompactMoney(trade.value))}</td>
+    </tr>`;
 
   return `
     <table class="txn-table">
@@ -2278,18 +2887,15 @@ function transactionTableHtml(trade) {
           <th>Code</th>
           <th>Security</th>
           <th>Units</th>
-          <th>Price</th>
+          <th>Price / exercise price</th>
           <th>Value</th>
         </tr>
       </thead>
       <tbody>${rows}</tbody>
       <tfoot>
-        <tr>
-          <td colspan="3">Total</td>
-          <td>${escapeHtml(formatWholeNumber(trade.shares))} ${escapeHtml(unitLabel)}</td>
-          <td>${escapeHtml(formatPrice(trade.price))}</td>
-          <td>${escapeHtml(formatCompactMoney(trade.value))}</td>
-        </tr>
+        ${isCompensationTrade(trade)
+          ? compensationTableFooterHtml(trade)
+          : marketFooter}
       </tfoot>
     </table>`;
 }
@@ -2312,12 +2918,6 @@ function calculationNote(trade) {
 }
 
 function modalTemplate(trade) {
-  const unitLabel =
-    displayUnitLabel(
-      trade.economicUnitLabel,
-      trade.shares
-    );
-
   const performance =
     getSinceTradePerformance(trade);
 
@@ -2330,11 +2930,25 @@ function modalTemplate(trade) {
       ? "neg"
       : "";
 
+  const statsHtml =
+    isCompensationTrade(trade)
+      ? compensationStatsHtml(trade)
+      : marketStatsHtml(
+          trade,
+          performanceClass
+        );
+
+  const meaningKey =
+    isCompensationTrade(trade)
+      ? "compensation"
+      : trade.marketAction ||
+        trade.tradeType;
+
   return `
     <div class="modal-header">
       <div>
         <div class="docket-line"><span class="ticker">${escapeHtml(trade.ticker)}</span><span>·</span><span>${escapeHtml(trade.company)}</span></div>
-        <div class="modal-title">${escapeHtml(trade.ceo)} — ${escapeHtml(trade.tradeTypeLabel)}</div>
+        <div class="modal-title">${escapeHtml(trade.displayCeoName)} — ${escapeHtml(trade.tradeTypeLabel)}</div>
       </div>
       <button class="modal-close" id="modalCloseBtn" aria-label="Close" type="button">✕</button>
     </div>
@@ -2346,12 +2960,9 @@ function modalTemplate(trade) {
         <p class="plain-sentence">${escapeHtml(trade.summary)}</p>
 
         <div class="stat-grid">
-          <div class="stat"><span class="stat-label">${escapeHtml(unitLabel)}</span><span class="stat-value">${escapeHtml(formatWholeNumber(trade.shares))}</span></div>
-          <div class="stat"><span class="stat-label">Avg. Price</span><span class="stat-value">${escapeHtml(formatPrice(trade.price))}</span></div>
-          <div class="stat"><span class="stat-label">Total Value</span><span class="stat-value">${escapeHtml(formatCompactMoney(trade.value))}</span></div>
-          <div class="stat"><span class="stat-label">Transaction Dates</span><span class="stat-value">${escapeHtml(formatDateRange(trade))}</span></div>
-          <div class="stat"><span class="stat-label">Filed Date</span><span class="stat-value">${escapeHtml(formatDate(trade.filedDate))}</span></div>
-          <div class="stat"><span class="stat-label">Since Trade</span><span class="stat-value ${performanceClass}">${escapeHtml(formatPerformance(trade))}</span></div>
+          ${statsHtml}
+          <div class="stat"><span class="stat-label">Transaction dates</span><span class="stat-value">${escapeHtml(formatDateRange(trade))}</span></div>
+          <div class="stat"><span class="stat-label">Filed date</span><span class="stat-value">${escapeHtml(formatDate(trade.filedDate))}</span></div>
         </div>
 
         ${calculationNote(trade)}
@@ -2359,13 +2970,13 @@ function modalTemplate(trade) {
 
       <div class="modal-section">
         <h4>Transactions in this filing</h4>
-        <p class="section-note">Individual transaction dates and checked values reported within this grouped Form 4 card.</p>
+        <p class="section-note">Every retained transaction line is shown separately. Shares, options, acquisitions, disposals, and tax withholding are not combined into a misleading single unit total.</p>
         ${transactionTableHtml(trade)}
       </div>
 
       <div class="modal-section">
         <h4>What does this mean?</h4>
-        <p>${escapeHtml(MEANING_BY_TYPE[trade.tradeType] || "This was an insider transaction reported on Form 4.")}</p>
+        <p>${escapeHtml(MEANING_BY_TYPE[meaningKey] || "This was an insider transaction reported on Form 4.")}</p>
         <p style="margin-top:10px;">${escapeHtml(planMeaning(trade))}</p>
         ${trade.ownershipEntities.length ? `<p style="margin-top:10px;">The filing identifies the transaction as made through ${escapeHtml(trade.ownershipEntities.join(" and "))}.</p>` : ""}
       </div>
