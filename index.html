@@ -819,8 +819,8 @@ let TRADES = [];
 const VOTER_STORAGE_KEY =
   "boardroom-anonymous-voter-id";
 
-const API_PAGE_SIZE = 100;
-const DISPLAY_PAGE_SIZE = 100;
+const API_PAGE_SIZE = 25;
+const DISPLAY_PAGE_SIZE = 25;
 
 const NEW_WINDOW_MS =
   7 * 24 * 60 * 60 * 1000;
@@ -886,8 +886,17 @@ let state = {
   valueBand: "",
   loading: false,
   allLoaded: false,
+  hasMore: false,
+  nextOffset: 0,
+  requestId: 0,
+  directTradeMode: false,
   total: 0,
   loaded: 0,
+  facets: {
+    companies: [],
+    ceos: [],
+    years: [],
+  },
   coverage: {
     earliestFilingDate: null,
     latestFilingDate: null,
@@ -1638,6 +1647,12 @@ function syncViewUrl() {
     window.location.href
   );
 
+  if (!state.directTradeMode) {
+    url.searchParams.delete(
+      "trade"
+    );
+  }
+
   if (state.view === "latest") {
     url.searchParams.delete(
       "view"
@@ -1703,6 +1718,7 @@ function setView(
     DISPLAY_PAGE_SIZE;
 
   if (updateUrl) {
+    state.directTradeMode = false;
     syncViewUrl();
   }
 }
@@ -1711,6 +1727,11 @@ function initializeViewFromUrl() {
   const params =
     new URLSearchParams(
       window.location.search
+    );
+
+  state.directTradeMode =
+    Boolean(
+      params.get("trade")
     );
 
   setView(
@@ -1763,151 +1784,248 @@ function syncVoteState() {
   });
 }
 
-async function loadTradesFromApi() {
-  if (state.loading) {
+async function loadTradesFromApi({
+  append = false,
+} = {}) {
+  if (append && state.loading) {
     return;
   }
 
-  state.loading = true;
-  state.allLoaded = false;
+  const requestId =
+    state.requestId + 1;
 
-  const tradeMap = new Map();
-  let offset = 0;
-  let hasMore = true;
-  let newestFetchedAt = null;
-  let latestCoverage = null;
+  state.requestId = requestId;
+  state.loading = true;
+
+  const offset =
+    append
+      ? state.nextOffset
+      : 0;
+
+  if (!append) {
+    TRADES = [];
+    state.loaded = 0;
+    state.total = 0;
+    state.hasMore = false;
+    state.nextOffset = 0;
+    state.allLoaded = false;
+  }
+
+  render();
 
   try {
-    while (hasMore) {
-      const params =
-        new URLSearchParams({
-          voter_id: VOTER_ID,
-          limit: String(API_PAGE_SIZE),
-          offset: String(offset),
+    const params =
+      new URLSearchParams({
+        voter_id: VOTER_ID,
+        limit: String(API_PAGE_SIZE),
+        offset: String(offset),
+        view: state.view,
+        sort: state.sort,
+        show_all: "true",
+        include_facets:
+          String(
+            !append &&
+            state.facets.companies
+              .length === 0
+          ),
+      });
 
-          // Fetch the complete database result set.
-          // The $100K view is applied locally so every
-          // filter can operate across every stored trade.
-          show_all: "true",
-          view: "all",
-          sort: "latest",
-        });
+    if (state.directTradeMode) {
+      const requestedTrade =
+        new URLSearchParams(
+          window.location.search
+        ).get("trade");
 
-      const response = await fetch(
-        `/api/form4?${params.toString()}`,
-        {
-          cache: "no-store",
-        }
+      if (requestedTrade) {
+        params.set(
+          "trade",
+          requestedTrade
+        );
+      }
+    }
+
+    if (
+      state.activeCategory === "buy" ||
+      state.activeCategory === "sell"
+    ) {
+      params.set(
+        "market_action",
+        state.activeCategory
+      );
+    }
+
+    if (state.company) {
+      params.set(
+        "company",
+        state.company
+      );
+    }
+
+    if (state.ceo) {
+      params.set(
+        "ceo",
+        state.ceo
+      );
+    }
+
+    if (state.year) {
+      params.set(
+        "year",
+        state.year
+      );
+    }
+
+    if (state.plan) {
+      params.set(
+        "plan",
+        state.plan
+      );
+    }
+
+    if (state.valueBand) {
+      params.set(
+        "value_band",
+        state.valueBand
+      );
+    }
+
+    if (state.search.trim()) {
+      params.set(
+        "search",
+        state.search.trim()
+      );
+    }
+
+    const response = await fetch(
+      `/api/form4?${params.toString()}`,
+      {
+        cache: "no-store",
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error(
+        `API error ${response.status}`
+      );
+    }
+
+    const data =
+      await response.json();
+
+    if (
+      requestId !== state.requestId
+    ) {
+      return;
+    }
+
+    const incoming =
+      Array.isArray(data?.trades)
+        ? data.trades.map(
+            normalizeTrade
+          )
+        : [];
+
+    if (append) {
+      const tradeMap = new Map(
+        TRADES.map(
+          (trade) => [
+            trade.id,
+            trade,
+          ]
+        )
       );
 
-      if (!response.ok) {
-        throw new Error(
-          `API error ${response.status}`
+      incoming.forEach((trade) => {
+        tradeMap.set(
+          trade.id,
+          trade
         );
-      }
-
-      const data =
-        await response.json();
-
-      const incoming =
-        Array.isArray(data?.trades)
-          ? data.trades
-          : [];
-
-      newestFetchedAt =
-        data?.fetchedAt ||
-        newestFetchedAt;
-
-      if (
-        data?.coverage &&
-        typeof data.coverage ===
-          "object"
-      ) {
-        latestCoverage =
-          data.coverage;
-      }
-
-      state.total =
-        requiredNumber(
-          data?.total,
-          state.total
-        );
-
-      incoming
-        .map(normalizeTrade)
-        .forEach((trade) => {
-          tradeMap.set(
-            trade.id,
-            trade
-          );
-        });
+      });
 
       TRADES =
         Array.from(
           tradeMap.values()
         );
-
-      state.loaded =
-        TRADES.length;
-
-      syncVoteState();
-
-      // Render progressively so the first 100 cards
-      // appear quickly while later API pages load.
-      buildFacetRow();
-      render();
-
-      const pagination =
-        data?.pagination || {};
-
-      hasMore =
-        Boolean(
-          pagination.hasMore
-        );
-
-      if (!hasMore) {
-        break;
-      }
-
-      const nextOffset =
-        requiredNumber(
-          pagination.nextOffset,
-          offset + incoming.length
-        );
-
-      if (
-        nextOffset <= offset ||
-        incoming.length === 0
-      ) {
-        throw new Error(
-          "API pagination did not advance."
-        );
-      }
-
-      offset =
-        nextOffset;
+    } else {
+      TRADES = incoming;
     }
 
-    state.allLoaded = true;
+    state.loaded = TRADES.length;
+    state.total =
+      requiredNumber(
+        data?.total,
+        TRADES.length
+      );
+
+    const pagination =
+      data?.pagination || {};
+
+    state.hasMore =
+      Boolean(
+        pagination.hasMore
+      );
+
+    state.nextOffset =
+      requiredNumber(
+        pagination.nextOffset,
+        offset + incoming.length
+      );
+
+    state.allLoaded =
+      !state.hasMore;
+
+    if (
+      data?.facets &&
+      typeof data.facets ===
+        "object"
+    ) {
+      state.facets = {
+        companies:
+          Array.isArray(
+            data.facets.companies
+          )
+            ? data.facets.companies
+            : [],
+        ceos:
+          Array.isArray(
+            data.facets.ceos
+          )
+            ? data.facets.ceos
+            : [],
+        years:
+          Array.isArray(
+            data.facets.years
+          )
+            ? data.facets.years
+            : [],
+      };
+    }
 
     const coverage =
-      latestCoverage || {};
+      data?.coverage || {};
 
     state.coverage = {
       earliestFilingDate:
         coverage.earliestFilingDate ||
         coverage.earliest_filing_date ||
+        state.coverage
+          .earliestFilingDate ||
         null,
       latestFilingDate:
         coverage.latestFilingDate ||
         coverage.latest_filing_date ||
+        state.coverage
+          .latestFilingDate ||
         null,
       dataUpdatedAt:
         coverage.dataUpdatedAt ||
         coverage.data_updated_at ||
-        newestFetchedAt ||
+        data?.fetchedAt ||
+        state.coverage.dataUpdatedAt ||
         null,
     };
+
+    syncVoteState();
 
     const dataRefreshed =
       document.getElementById(
@@ -1957,7 +2075,10 @@ async function loadTradesFromApi() {
           : "N/A";
     }
 
-    buildFacetRow();
+    if (!append) {
+      buildFacetRow();
+    }
+
     render();
   } catch (error) {
     console.error(
@@ -1965,7 +2086,10 @@ async function loadTradesFromApi() {
       error
     );
 
-    if (!TRADES.length) {
+    if (
+      requestId === state.requestId &&
+      !TRADES.length
+    ) {
       const feed =
         document.getElementById(
           "feed"
@@ -1980,13 +2104,20 @@ async function loadTradesFromApi() {
         "loadMoreStatus"
       );
 
-    if (status) {
+    if (
+      requestId === state.requestId &&
+      status
+    ) {
       status.textContent =
         "Some trades could not be loaded. The site will retry automatically.";
     }
   } finally {
-    state.loading = false;
-    render();
+    if (
+      requestId === state.requestId
+    ) {
+      state.loading = false;
+      render();
+    }
   }
 }
 
@@ -2071,7 +2202,7 @@ function buildFilterRow() {
                 state.visibleCount =
                   DISPLAY_PAGE_SIZE;
 
-                render();
+                loadTradesFromApi();
               }
             );
 
@@ -2108,7 +2239,7 @@ function buildFilterRow() {
       state.visibleCount =
         DISPLAY_PAGE_SIZE;
 
-      render();
+      loadTradesFromApi();
     }
   );
 
@@ -2191,43 +2322,14 @@ function sizeAllFacetSelects() {
 }
 
 function buildFacetRow() {
-  const companies = [
-    ...new Set(
-      TRADES.map(
-        (trade) => trade.company
-      )
-    ),
-  ].sort();
+  const companies =
+    state.facets.companies;
 
-  const ceos = [
-    ...new Set(
-      TRADES.map(
-        (trade) =>
-          trade.displayCeoName ||
-          trade.ceo
-      )
-    ),
-  ].sort();
+  const ceos =
+    state.facets.ceos;
 
-  const years = [
-    ...new Set(
-      TRADES.map((trade) => {
-        if (!trade.filedDate) {
-          return null;
-        }
-
-        const date = new Date(
-          `${trade.filedDate}T00:00:00`
-        );
-
-        return Number.isNaN(
-          date.getTime()
-        )
-          ? null
-          : date.getFullYear();
-      }).filter(Boolean)
-    ),
-  ].sort((a, b) => b - a);
+  const years =
+    state.facets.years;
 
   const setOptions = (
     id,
@@ -2320,7 +2422,7 @@ function buildFacetRow() {
       state.visibleCount =
         DISPLAY_PAGE_SIZE;
 
-      render();
+      loadTradesFromApi();
     };
   };
 
@@ -2380,6 +2482,10 @@ function resetFacets() {
 
 function getFiltered() {
   let list = TRADES.slice();
+
+  if (state.directTradeMode) {
+    return list;
+  }
 
   // The default homepage is market-only. Compensation
   // remains available through its dedicated filter.
@@ -3211,6 +3317,11 @@ function closeModal() {
     "",
     url
   );
+
+  if (state.directTradeMode) {
+    state.directTradeMode = false;
+    loadTradesFromApi();
+  }
 }
 
 let requestedTradeOpened = false;
@@ -3431,11 +3542,7 @@ function render() {
 
   const list = getFiltered();
 
-  const visibleList =
-    list.slice(
-      0,
-      state.visibleCount
-    );
+  const visibleList = list;
 
   const feed =
     document.getElementById(
@@ -3449,15 +3556,15 @@ function render() {
     );
 
   const matchingCount =
-    list.length;
+    state.total;
 
   document.getElementById(
     "resultCount"
   ).textContent =
     state.loading &&
-    !state.allLoaded
+    !TRADES.length
       ? `${matchingCount.toLocaleString("en-US")} matching trade${matchingCount === 1 ? "" : "s"} loaded…`
-      : `${matchingCount.toLocaleString("en-US")} trade${matchingCount === 1 ? "" : "s"}`;
+      : `${state.total.toLocaleString("en-US")} trade${state.total === 1 ? "" : "s"}`;
 
   const pagination =
     document.getElementById(
@@ -3474,46 +3581,38 @@ function render() {
       "loadMoreStatus"
     );
 
-  const remaining =
-    Math.max(
-      0,
-      list.length -
-        visibleList.length
-    );
-
   if (loadMoreButton) {
     loadMoreButton.hidden =
-      remaining === 0;
+      !state.hasMore;
 
     loadMoreButton.disabled =
-      state.loading &&
-      !state.allLoaded;
+      state.loading;
 
     loadMoreButton.textContent =
-      remaining > 0
-        ? `Load ${Math.min(
-            DISPLAY_PAGE_SIZE,
-            remaining
-          ).toLocaleString("en-US")} more trades`
+      state.loading &&
+      TRADES.length
+        ? "Loading more trades..."
+        : state.hasMore
+        ? `Load ${API_PAGE_SIZE.toLocaleString("en-US")} more trades`
         : "All matching trades shown";
   }
 
   if (loadMoreStatus) {
     if (
-      state.loading &&
-      !state.allLoaded
+      state.loading
     ) {
       loadMoreStatus.textContent =
-        `Loading all trades: ${TRADES.length.toLocaleString("en-US")} of ${totalCount.toLocaleString("en-US")} loaded`;
+        `Loading more trades: ${TRADES.length.toLocaleString("en-US")} of ${totalCount.toLocaleString("en-US")} currently shown`;
     } else {
       loadMoreStatus.textContent =
-        `Showing ${visibleList.length.toLocaleString("en-US")} of ${list.length.toLocaleString("en-US")} matching trades`;
+        `Showing ${visibleList.length.toLocaleString("en-US")} of ${totalCount.toLocaleString("en-US")} matching trades`;
     }
   }
 
   if (pagination) {
     pagination.hidden =
       !state.loading &&
+      !state.hasMore &&
       list.length === 0;
   }
 
@@ -3619,7 +3718,7 @@ document.getElementById(
       button.dataset.view
     );
 
-    render();
+    loadTradesFromApi();
   }
 );
 
@@ -3641,7 +3740,7 @@ document.getElementById(
       button.dataset.view
     );
 
-    render();
+    loadTradesFromApi();
 
     window.scrollTo({
       top: 0,
@@ -3667,7 +3766,7 @@ document.getElementById(
         state.visibleCount =
           DISPLAY_PAGE_SIZE;
 
-        render();
+        loadTradesFromApi();
       },
       120
     );
@@ -3679,10 +3778,11 @@ document.getElementById(
 ).addEventListener(
   "click",
   () => {
-    state.visibleCount +=
-      DISPLAY_PAGE_SIZE;
-
-    render();
+    if (state.hasMore) {
+      loadTradesFromApi({
+        append: true,
+      });
+    }
   }
 );
 

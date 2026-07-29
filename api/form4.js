@@ -924,6 +924,12 @@ export default async function handler(req, res) {
       q.ticker || ""
     ).trim();
 
+    const requestedTrade = String(
+      q.trade ??
+        q.permanent_slug ??
+        ""
+    ).trim();
+
     let tradeType = String(
       q.trade_type ??
         q.tradeType ??
@@ -951,6 +957,51 @@ export default async function handler(req, res) {
     const searchPattern =
       `%${search}%`;
 
+    const year = clampInteger(
+      q.year,
+      0,
+      0,
+      9999
+    );
+
+    const plan = [
+      "yes",
+      "no",
+    ].includes(
+      String(
+        q.plan || ""
+      ).toLowerCase()
+    )
+      ? String(
+          q.plan
+        ).toLowerCase()
+      : "";
+
+    const valueBand = new Set([
+      "lt1m",
+      "1to5m",
+      "5to25m",
+      "gt25m",
+    ]).has(
+      String(
+        q.value_band ??
+          q.valueBand ??
+          ""
+      ).toLowerCase()
+    )
+      ? String(
+          q.value_band ??
+            q.valueBand
+        ).toLowerCase()
+      : "";
+
+    const includeFacets =
+      normalizeBoolean(
+        q.include_facets ??
+          q.includeFacets,
+        offset === 0
+      );
+
     const showAll = normalizeBoolean(
       q.show_all ??
         q.showAll,
@@ -972,7 +1023,6 @@ export default async function handler(req, res) {
     if (view === "latest") {
       cardCategory = "market";
       tradeType = "";
-      marketAction = "";
       sort = "latest";
     } else if (
       view === "largest-buys"
@@ -999,8 +1049,18 @@ export default async function handler(req, res) {
     }
 
     const requiresRankableValue =
-      view === "largest-buys" ||
-      view === "largest-sells";
+      !requestedTrade &&
+      (
+        view === "largest-buys" ||
+        view === "largest-sells"
+      );
+
+    if (requestedTrade) {
+      cardCategory = "";
+      tradeType = "";
+      marketAction = "";
+      sort = "latest";
+    }
 
     const minimumValue = clampInteger(
       q.min_value ??
@@ -1047,6 +1107,14 @@ export default async function handler(req, res) {
 
       WHERE
         (
+          ${requestedTrade} = ''
+          OR t.id = ${requestedTrade}
+          OR t.permanent_slug =
+            ${requestedTrade}
+        )
+
+        AND
+        (
           ${company} = ''
           OR t.company = ${company}
         )
@@ -1076,6 +1144,48 @@ export default async function handler(req, res) {
         AND (
           ${marketAction} = ''
           OR t.market_action = ${marketAction}
+        )
+
+        AND (
+          ${year} = 0
+          OR EXTRACT(
+            YEAR FROM t.filed_date
+          )::integer = ${year}
+        )
+
+        AND (
+          ${plan} = ''
+          OR (
+            ${plan} = 'yes'
+            AND t.ten_b5_1 = TRUE
+          )
+          OR (
+            ${plan} = 'no'
+            AND t.ten_b5_1 = FALSE
+          )
+        )
+
+        AND (
+          ${valueBand} = ''
+          OR (
+            ${valueBand} = 'lt1m'
+            AND t.total_value >= 0
+            AND t.total_value < 1000000
+          )
+          OR (
+            ${valueBand} = '1to5m'
+            AND t.total_value >= 1000000
+            AND t.total_value < 5000000
+          )
+          OR (
+            ${valueBand} = '5to25m'
+            AND t.total_value >= 5000000
+            AND t.total_value < 25000000
+          )
+          OR (
+            ${valueBand} = 'gt25m'
+            AND t.total_value >= 25000000
+          )
         )
 
         AND (
@@ -1166,6 +1276,14 @@ export default async function handler(req, res) {
 
       WHERE
         (
+          ${requestedTrade} = ''
+          OR t.id = ${requestedTrade}
+          OR t.permanent_slug =
+            ${requestedTrade}
+        )
+
+        AND
+        (
           ${company} = ''
           OR t.company = ${company}
         )
@@ -1195,6 +1313,48 @@ export default async function handler(req, res) {
         AND (
           ${marketAction} = ''
           OR t.market_action = ${marketAction}
+        )
+
+        AND (
+          ${year} = 0
+          OR EXTRACT(
+            YEAR FROM t.filed_date
+          )::integer = ${year}
+        )
+
+        AND (
+          ${plan} = ''
+          OR (
+            ${plan} = 'yes'
+            AND t.ten_b5_1 = TRUE
+          )
+          OR (
+            ${plan} = 'no'
+            AND t.ten_b5_1 = FALSE
+          )
+        )
+
+        AND (
+          ${valueBand} = ''
+          OR (
+            ${valueBand} = 'lt1m'
+            AND t.total_value >= 0
+            AND t.total_value < 1000000
+          )
+          OR (
+            ${valueBand} = '1to5m'
+            AND t.total_value >= 1000000
+            AND t.total_value < 5000000
+          )
+          OR (
+            ${valueBand} = '5to25m'
+            AND t.total_value >= 5000000
+            AND t.total_value < 25000000
+          )
+          OR (
+            ${valueBand} = 'gt25m'
+            AND t.total_value >= 25000000
+          )
         )
 
         AND (
@@ -1260,6 +1420,77 @@ export default async function handler(req, res) {
       FROM trades
     `;
 
+    let facets = null;
+
+    if (includeFacets) {
+      const facetRows = await sql`
+        SELECT
+          ARRAY_REMOVE(
+            ARRAY_AGG(
+              DISTINCT company
+              ORDER BY company
+            ),
+            NULL
+          ) AS companies,
+
+          ARRAY_REMOVE(
+            ARRAY_AGG(
+              DISTINCT COALESCE(
+                display_ceo_name,
+                ceo,
+                reporting_owner_name
+              )
+              ORDER BY COALESCE(
+                display_ceo_name,
+                ceo,
+                reporting_owner_name
+              )
+            ),
+            NULL
+          ) AS ceos,
+
+          ARRAY_REMOVE(
+            ARRAY_AGG(
+              DISTINCT EXTRACT(
+                YEAR FROM filed_date
+              )::integer
+              ORDER BY EXTRACT(
+                YEAR FROM filed_date
+              )::integer DESC
+            ),
+            NULL
+          ) AS years
+
+        FROM trades
+      `;
+
+      const facetRow =
+        facetRows?.[0] || {};
+
+      facets = {
+        companies:
+          Array.isArray(
+            facetRow.companies
+          )
+            ? facetRow.companies
+            : [],
+
+        ceos:
+          Array.isArray(
+            facetRow.ceos
+          )
+            ? facetRow.ceos
+            : [],
+
+        years:
+          Array.isArray(
+            facetRow.years
+          )
+            ? facetRow.years
+            : [],
+      };
+    }
+
     const trades = rows.map(
       mapTradeRow
     );
@@ -1301,6 +1532,8 @@ export default async function handler(req, res) {
           coverage.data_updated_at || null,
       },
 
+      facets,
+
       pagination: {
         limit,
         offset,
@@ -1316,10 +1549,14 @@ export default async function handler(req, res) {
         company,
         ceo,
         ticker,
+        requestedTrade,
         tradeType,
         cardCategory,
         marketAction,
         search,
+        year,
+        plan,
+        valueBand,
         showAll,
         rankingEligibleOnly,
 
