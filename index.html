@@ -1779,15 +1779,18 @@ async function loadTradesFromApi() {
 
   try {
     while (hasMore) {
-      const params = new URLSearchParams({ voter_id: VOTER_ID, limit: String(API_PAGE_SIZE), offset: String(offset),
+      const params = new URLSearchParams({ 
+        voter_id: VOTER_ID, 
+        limit: String(API_PAGE_SIZE), 
+        offset: String(offset),
       // Fetch the complete database result set.
       // The $100K view is applied locally so every
       // filter can operate across every stored trade.
       show_all: "true",
       view: "all",
-      sort: "newest",
+      sort: "latest",
 
-});
+      });
       
 const params = new URLSearchParams({ voter_id: VOTER_ID, limit: String(API_PAGE_SIZE), offset: String(offset), show_all: apiShowAll, view: apiView, sort: state.sort || "latest", });
       const response = await fetch(
