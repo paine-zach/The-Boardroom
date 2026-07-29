@@ -26,6 +26,26 @@ function normalizeSort(value) {
     : "latest";
 }
 
+function normalizeView(value) {
+  const allowed = new Set([
+    "all",
+    "latest",
+    "largest-buys",
+    "largest-sells",
+    "compensation",
+  ]);
+
+  const normalized = String(
+    value || "latest"
+  )
+    .trim()
+    .toLowerCase();
+
+  return allowed.has(normalized)
+    ? normalized
+    : "latest";
+}
+
 function normalizeBoolean(value, fallback = false) {
   if (typeof value === "boolean") {
     return value;
@@ -298,62 +318,6 @@ function parseJsonObject(value) {
   )
     ? parsed
     : {};
-}
-
-function normalizePerformance(value) {
-  const performance = parseJsonObject(value);
-  const sinceTrade = parseJsonObject(
-    performance.sinceTrade
-  );
-
-  return {
-    ...performance,
-
-    eligible:
-      performance.eligible === true,
-
-    transactionPriceAdjusted:
-      nullableNumber(
-        performance.transactionPriceAdjusted
-      ),
-
-    latestPrice:
-      nullableNumber(
-        performance.latestPrice
-      ),
-
-    latestPriceDate:
-      formatDatabaseDate(
-        performance.latestPriceDate
-      ),
-
-    returnPct:
-      nullableNumber(
-        performance.returnPct
-      ),
-
-    estimatedDollarImpact:
-      nullableNumber(
-        performance.estimatedDollarImpact
-      ),
-
-    calculationTrusted:
-      performance.calculationTrusted === true,
-
-    calculationWarnings:
-      parseJsonArray(
-        performance.calculationWarnings
-      ),
-
-    sinceTrade: {
-      ...sinceTrade,
-
-      changePct:
-        nullableNumber(
-          sinceTrade.changePct
-        ),
-    },
-  };
 }
 
 function normalizeTradeLine(line) {
@@ -829,9 +793,6 @@ function mapTradeRow(row) {
     rankingEligible:
       row.ranking_eligible === true,
 
-    performanceEligible:
-      row.performance_eligible === true,
-
     adsRatio:
       nullableNumber(
         row.ads_ratio
@@ -899,11 +860,6 @@ function mapTradeRow(row) {
         row.ceo_match_confidence
       ),
 
-    perf:
-      normalizePerformance(
-        row.perf
-      ),
-
     upvotes:
       numberOrZero(
         row.upvotes
@@ -948,8 +904,12 @@ export default async function handler(req, res) {
       1_000_000
     );
 
-    const sort = normalizeSort(
+    let sort = normalizeSort(
       q.sort
+    );
+
+    const view = normalizeView(
+      q.view
     );
 
     const company = String(
@@ -964,19 +924,19 @@ export default async function handler(req, res) {
       q.ticker || ""
     ).trim();
 
-    const tradeType = String(
+    let tradeType = String(
       q.trade_type ??
         q.tradeType ??
         ""
     ).trim();
 
-    const cardCategory = String(
+    let cardCategory = String(
       q.card_category ??
         q.cardCategory ??
         ""
     ).trim();
 
-    const marketAction = String(
+    let marketAction = String(
       q.market_action ??
         q.marketAction ??
         ""
@@ -1004,17 +964,48 @@ export default async function handler(req, res) {
         false
       );
 
-    const performanceEligibleOnly =
-      normalizeBoolean(
-        q.performance_eligible ??
-          q.performanceEligible,
-        false
-      );
+    /*
+     * Public feed views intentionally use only SEC Form 4 data.
+     * Performance rankings and market-price calculations are no
+     * longer part of the product.
+     */
+    if (view === "latest") {
+      cardCategory = "market";
+      tradeType = "";
+      marketAction = "";
+      sort = "latest";
+    } else if (
+      view === "largest-buys"
+    ) {
+      cardCategory = "market";
+      tradeType = "";
+      marketAction = "buy";
+      sort = "largest";
+    } else if (
+      view === "largest-sells"
+    ) {
+      cardCategory = "market";
+      tradeType = "";
+      marketAction = "sell";
+      sort = "largest";
+    } else if (
+      view === "compensation"
+    ) {
+      cardCategory =
+        "compensation";
+      tradeType = "";
+      marketAction = "";
+      sort = "latest";
+    }
+
+    const requiresRankableValue =
+      view === "largest-buys" ||
+      view === "largest-sells";
 
     const minimumValue = clampInteger(
       q.min_value ??
         q.minValue,
-      100_000,
+      0,
       0,
       1_000_000_000
     );
@@ -1093,8 +1084,11 @@ export default async function handler(req, res) {
         )
 
         AND (
-          NOT ${performanceEligibleOnly}
-          OR t.performance_eligible = TRUE
+          NOT ${requiresRankableValue}
+          OR (
+            t.total_value IS NOT NULL
+            AND t.total_value > 0
+          )
         )
 
         AND (
@@ -1153,7 +1147,7 @@ export default async function handler(req, res) {
 
         CASE
           WHEN ${sort} = 'latest'
-            THEN t.transaction_date
+            THEN t.filed_date
         END DESC NULLS LAST,
 
         t.filed_date DESC NULLS LAST,
@@ -1209,8 +1203,11 @@ export default async function handler(req, res) {
         )
 
         AND (
-          NOT ${performanceEligibleOnly}
-          OR t.performance_eligible = TRUE
+          NOT ${requiresRankableValue}
+          OR (
+            t.total_value IS NOT NULL
+            AND t.total_value > 0
+          )
         )
 
         AND (
@@ -1314,6 +1311,7 @@ export default async function handler(req, res) {
       },
 
       query: {
+        view,
         sort,
         company,
         ceo,
@@ -1324,7 +1322,6 @@ export default async function handler(req, res) {
         search,
         showAll,
         rankingEligibleOnly,
-        performanceEligibleOnly,
 
         minimumValue:
           showAll

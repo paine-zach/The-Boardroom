@@ -194,6 +194,9 @@
     color:var(--ink-soft); text-decoration:none; border:1px solid var(--line); padding:4px 9px; border-radius:12px;
   }
   .form4-link:hover{ color:var(--navy); border-color:var(--navy); }
+  .card-footer-actions{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; justify-content:flex-end; }
+  .share-link{ background:var(--paper); cursor:pointer; font-family:'IBM Plex Sans', sans-serif; letter-spacing:0; }
+  .share-link.copied{ color:var(--accent-ink); border-color:var(--accent); }
 
   .no-results{ text-align:center; padding:60px 20px; color:var(--ink-soft); font-family:'IBM Plex Mono', monospace; font-size:13px; border:1px dashed var(--line); border-radius:var(--radius); background:var(--card); }
 
@@ -201,6 +204,13 @@
   .side-box{ background:var(--card); border:1px solid var(--line); border-radius:var(--radius); padding:16px 18px; }
   .side-box h2{ font-family:'IBM Plex Mono', monospace; font-size:11px; letter-spacing:0.12em; text-transform:uppercase; color:var(--accent-ink); margin:0 0 10px; }
   .side-box p{ font-size:13px; line-height:1.55; color:var(--ink-soft); margin:0 0 8px; }
+  .side-nav{ display:flex; flex-direction:column; gap:6px; }
+  .side-nav-label{ font-family:'IBM Plex Mono', monospace; font-size:10px; letter-spacing:0.1em; text-transform:uppercase; color:var(--ink-soft); margin:8px 0 2px; }
+  .side-nav-button{ width:100%; text-align:left; border:1px solid transparent; background:transparent; color:var(--ink); border-radius:3px; padding:8px 9px; font:600 13px/1.25 'IBM Plex Sans', sans-serif; cursor:pointer; }
+  .side-nav-button:hover{ background:var(--paper); border-color:var(--line-soft); }
+  .side-nav-button.active{ background:#F1E4C6; border-color:#DCC489; color:var(--accent-ink); }
+  .side-nav-button:disabled{ cursor:not-allowed; opacity:0.52; }
+  .side-nav-note{ display:block; margin-top:2px; font-size:10.5px; font-weight:400; color:var(--ink-soft); }
   .glossary dt{ font-family:'IBM Plex Mono', monospace; font-size:12px; font-weight:600; color:var(--ink); margin-top:9px; }
   .glossary dd{ margin:2px 0 0; font-size:12.5px; color:var(--ink-soft); line-height:1.45; }
   .sample-note{ font-size:12px; color:var(--accent-ink); background:#F1E4C6; border:1px solid #DCC489; padding:9px 11px; border-radius:3px; line-height:1.5; }
@@ -261,14 +271,6 @@
   }
   .txn-table td{ padding:7px 8px; border-bottom:1px solid var(--line-soft); font-family:'IBM Plex Mono', monospace; color:var(--ink); }
   .txn-table tfoot td{ font-weight:600; border-top:1px solid var(--line); border-bottom:none; }
-
-  .spark-wrap{ background:var(--paper); border:1px solid var(--line-soft); border-radius:3px; padding:14px 16px; }
-  .spark-stat-row{ display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; margin-top:10px; text-align:center; }
-  .spark-stat-row .spark-stat{ display:flex; flex-direction:column; gap:2px; }
-  .spark-stat-row .spark-stat-label{ font-family:'IBM Plex Mono', monospace; font-size:9.5px; letter-spacing:0.06em; text-transform:uppercase; color:var(--ink-soft); }
-  .spark-stat-row .spark-stat-value{ font-family:'IBM Plex Mono', monospace; font-size:14px; font-weight:600; color:var(--ink); }
-  .spark-stat-row .spark-stat-value.pos{ color:var(--pos); }
-  .spark-stat-row .spark-stat-value.neg{ color:var(--neg); }
 
   .modal-footer{
     display:flex; justify-content:space-between; align-items:center; gap:12px;
@@ -345,6 +347,18 @@
     border:1px solid var(--accent);
     color:var(--accent-ink);
     background:#F5EBD3;
+  }
+
+  .rank-badge{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:10.5px;
+    font-weight:700;
+    letter-spacing:0.04em;
+    padding:3px 9px;
+    border-radius:12px;
+    border:1px solid var(--navy);
+    color:var(--header-fg);
+    background:var(--navy);
   }
 
   .ownership-badge{
@@ -549,6 +563,111 @@
   }
 
   @media (max-width: 620px){
+    .header-inner{
+      padding:14px 14px 16px;
+    }
+
+    .brand h1{
+      font-size:29px;
+    }
+
+    .header-right{
+      min-width:100%;
+      align-items:flex-start;
+    }
+
+    .toolbar,
+    .filter-row,
+    .facet-row{
+      padding-left:14px;
+      padding-right:14px;
+    }
+
+    .sort-tabs{
+      width:100%;
+      overflow-x:auto;
+      padding-bottom:3px;
+      scrollbar-width:thin;
+    }
+
+    .sort-tabs button{
+      flex:0 0 auto;
+      white-space:nowrap;
+    }
+
+    .facet-row select{
+      flex:1 1 100%;
+      width:100%;
+      max-width:none;
+    }
+
+    .layout{
+      padding:14px 10px 60px;
+    }
+
+    .vote-col{
+      width:46px;
+      padding-left:3px;
+      padding-right:3px;
+    }
+
+    .card-body{
+      padding:12px 11px 13px;
+    }
+
+    .card-top{
+      flex-direction:column;
+      gap:7px;
+    }
+
+    .stamp{
+      align-self:flex-start;
+    }
+
+    .case-title{
+      font-size:17px;
+    }
+
+    .case-meta{
+      line-height:1.55;
+    }
+
+    .stat-grid{
+      grid-template-columns:repeat(2, minmax(0,1fr));
+      padding:9px;
+    }
+
+    .card-footer{
+      align-items:flex-start;
+      flex-direction:column;
+      gap:10px;
+    }
+
+    .card-footer-actions{
+      width:100%;
+      justify-content:flex-start;
+    }
+
+    .modal-overlay{
+      padding:0;
+      align-items:stretch;
+    }
+
+    .modal-panel{
+      max-height:100vh;
+      border-radius:0;
+    }
+
+    .modal-body{
+      padding:16px 13px 4px;
+    }
+
+    .txn-table{
+      display:block;
+      overflow-x:auto;
+      white-space:nowrap;
+    }
+
     .controls-shell.controls-past{
       max-height:68vh;
       overflow-y:auto;
@@ -568,9 +687,9 @@
 <header class="site">
   <div class="header-inner">
     <div class="brand">
-      <span class="mark">Public Filings · Form 4</span>
+      <span class="mark">Live SEC Form 4 Tracker</span>
       <h1>The Boardroom</h1>
-      <p class="sub">CEO stock trades from SEC filings, in plain language. Browse, search, and see which trades the market is watching.</p>
+      <p class="sub">Track what CEOs are buying and selling from the latest SEC Form 4 filings.</p>
     </div>
     <div class="header-right">
       <div class="powered-badge">
@@ -592,11 +711,11 @@
 <div class="controls-shell" id="controlsShell">
   <div class="toolbar">
     <div class="sort-tabs" id="sortTabs">
-      <button data-sort="latest" class="active">Latest</button>
-      <button data-sort="largest">Biggest Trades</button>
+      <button data-view="latest" class="active">Most Recent</button>
+      <button data-view="largest-buys">Largest CEO Buys</button>
+      <button data-view="largest-sells">Largest CEO Sells</button>
     </div>
     <div class="toolbar-actions">
-      <button class="show-all-toggle" id="showAllToggle" type="button">Show all trades</button>
       <div class="result-count" id="resultCount">— trades</div>
     </div>
   </div>
@@ -626,12 +745,30 @@
 
   <aside class="sidebar">
     <div class="side-box">
+      <h2>Explore</h2>
+      <nav class="side-nav" id="sideNavigation" aria-label="Trade feeds">
+        <span class="side-nav-label">Market activity</span>
+        <button class="side-nav-button active" type="button" data-view="latest">Most Recent</button>
+        <button class="side-nav-button" type="button" data-view="largest-buys">Largest CEO Buys</button>
+        <button class="side-nav-button" type="button" data-view="largest-sells">Largest CEO Sells</button>
+
+        <span class="side-nav-label">Compensation events</span>
+        <button class="side-nav-button" type="button" data-view="compensation">Awards, grants &amp; options</button>
+      </nav>
+    </div>
+
+    <div class="side-box">
       <p class="sample-note">
         Source: SEC Form 4 filings.<br>
         Data refreshed: <strong id="dataRefreshed">—</strong><br>
         Latest filing available: <strong id="latestFilingDate">—</strong><br>
         Coverage: <strong id="coverageRange">—</strong>
       </p>
+    </div>
+
+    <div class="side-box">
+      <h2>How rankings work</h2>
+      <p>Largest CEO Buys and Largest CEO Sells are ranked separately using transaction values calculated from the shares and reported prices in each Form 4. Matching lines in one filing are grouped, and their values are added together. Transactions without a usable reported price show N/A and are not treated as having a zero-dollar value.</p>
     </div>
 
     <div class="side-box">
@@ -681,9 +818,6 @@ let TRADES = [];
 
 const VOTER_STORAGE_KEY =
   "boardroom-anonymous-voter-id";
-
-const DEFAULT_MINIMUM_MARKET_VALUE =
-  100_000;
 
 const API_PAGE_SIZE = 100;
 const DISPLAY_PAGE_SIZE = 100;
@@ -741,6 +875,7 @@ const VALUE_BAND_LABELS = {
 const NOT_AVAILABLE = "N/A";
 
 let state = {
+  view: "latest",
   sort: "latest",
   activeCategory: null,
   search: "",
@@ -749,7 +884,6 @@ let state = {
   year: "",
   plan: "",
   valueBand: "",
-  showAll: false,
   loading: false,
   allLoaded: false,
   total: 0,
@@ -1073,25 +1207,6 @@ function displayUnitLabel(
     : "Securities";
 }
 
-function getSinceTradePerformance(trade) {
-  return nullableNumber(
-    trade?.perf?.sinceTrade?.changePct
-  );
-}
-
-function formatPerformance(trade) {
-  const change =
-    getSinceTradePerformance(trade);
-
-  if (change === null) {
-    return NOT_AVAILABLE;
-  }
-
-  const sign = change > 0 ? "+" : "";
-
-  return `${sign}${change.toFixed(1)}%`;
-}
-
 function valueBand(value) {
   const amount = nullableNumber(value);
 
@@ -1403,9 +1518,6 @@ function normalizeTrade(t, index) {
     rankingEligible:
       t.rankingEligible === true,
 
-    performanceEligible:
-      t.performanceEligible === true,
-
     adsRatio:
       nullableNumber(t.adsRatio),
 
@@ -1443,16 +1555,6 @@ function normalizeTrade(t, index) {
 
     tenB51:
       Boolean(t.tenB51),
-
-    perf:
-      t.perf &&
-      typeof t.perf === "object"
-        ? t.perf
-        : {
-            sinceTrade: {
-              changePct: null,
-            },
-          },
 
     upvotes:
       requiredNumber(t.upvotes, 0),
@@ -1517,6 +1619,109 @@ function isCompensationTrade(trade) {
   );
 }
 
+function tradePermanentUrl(trade) {
+  const url = new URL(
+    window.location.href
+  );
+
+  url.searchParams.set(
+    "trade",
+    trade.permanentSlug ||
+      trade.id
+  );
+
+  return url.toString();
+}
+
+function syncViewUrl() {
+  const url = new URL(
+    window.location.href
+  );
+
+  if (state.view === "latest") {
+    url.searchParams.delete(
+      "view"
+    );
+  } else {
+    url.searchParams.set(
+      "view",
+      state.view
+    );
+  }
+
+  window.history.replaceState(
+    {},
+    "",
+    url
+  );
+}
+
+function setView(
+  view,
+  {
+    updateUrl = true,
+  } = {}
+) {
+  const allowedViews =
+    new Set([
+      "latest",
+      "largest-buys",
+      "largest-sells",
+      "compensation",
+    ]);
+
+  state.view =
+    allowedViews.has(view)
+      ? view
+      : "latest";
+
+  if (
+    state.view ===
+      "largest-buys"
+  ) {
+    state.sort = "largest";
+    state.activeCategory = "buy";
+  } else if (
+    state.view ===
+      "largest-sells"
+  ) {
+    state.sort = "largest";
+    state.activeCategory = "sell";
+  } else if (
+    state.view ===
+      "compensation"
+  ) {
+    state.sort = "latest";
+    state.activeCategory =
+      "compensation";
+  } else {
+    state.sort = "latest";
+    state.activeCategory = null;
+  }
+
+  state.visibleCount =
+    DISPLAY_PAGE_SIZE;
+
+  if (updateUrl) {
+    syncViewUrl();
+  }
+}
+
+function initializeViewFromUrl() {
+  const params =
+    new URLSearchParams(
+      window.location.search
+    );
+
+  setView(
+    params.get("view") ||
+      "latest",
+    {
+      updateUrl: false,
+    }
+  );
+}
+
 function categoryMatches(
   trade,
   category
@@ -1542,30 +1747,6 @@ function categoryMatches(
   return trade.tradeType === category;
 }
 
-function updateShowAllButton() {
-  const button =
-    document.getElementById(
-      "showAllToggle"
-    );
-
-  if (!button) {
-    return;
-  }
-
-  button.classList.toggle(
-    "active",
-    state.showAll
-  );
-
-  if (state.showAll) {
-    button.textContent =
-      "Use $100K minimum";
-  } else {
-    button.textContent =
-      "Show all trades";
-  }
-}
-
 function syncVoteState() {
   state.votes = {};
   state.voted = new Set();
@@ -1589,7 +1770,6 @@ async function loadTradesFromApi() {
 
   state.loading = true;
   state.allLoaded = false;
-  updateShowAllButton();
 
   const tradeMap = new Map();
   let offset = 0;
@@ -1806,7 +1986,6 @@ async function loadTradesFromApi() {
     }
   } finally {
     state.loading = false;
-    updateShowAllButton();
     render();
   }
 }
@@ -1880,6 +2059,15 @@ function buildFilterRow() {
                     ? null
                     : key;
 
+                state.view =
+                  state.activeCategory ===
+                    "compensation"
+                    ? "compensation"
+                    : "latest";
+
+                state.sort = "latest";
+                syncViewUrl();
+
                 state.visibleCount =
                   DISPLAY_PAGE_SIZE;
 
@@ -1912,7 +2100,10 @@ function buildFilterRow() {
     "click",
     () => {
       state.activeCategory = null;
+      state.view = "latest";
+      state.sort = "latest";
       resetFacets();
+      syncViewUrl();
 
       state.visibleCount =
         DISPLAY_PAGE_SIZE;
@@ -2198,23 +2389,6 @@ function getFiltered() {
     );
   }
 
-  if (!state.showAll) {
-    list = list.filter((trade) => {
-      if (!isMarketTrade(trade)) {
-        return true;
-      }
-
-      const value =
-        nullableNumber(trade.value);
-
-      return (
-        value !== null &&
-        value >=
-          DEFAULT_MINIMUM_MARKET_VALUE
-      );
-    });
-  }
-
   if (state.activeCategory) {
     list = list.filter(
       (trade) =>
@@ -2222,6 +2396,27 @@ function getFiltered() {
           trade,
           state.activeCategory
         )
+    );
+  }
+
+  if (
+    state.view ===
+      "largest-buys" ||
+    state.view ===
+      "largest-sells"
+  ) {
+    list = list.filter(
+      (trade) => {
+        const value =
+          nullableNumber(
+            trade.value
+          );
+
+        return (
+          value !== null &&
+          value > 0
+        );
+      }
     );
   }
 
@@ -2579,10 +2774,7 @@ function compensationStatsHtml(trade) {
     .join("");
 }
 
-function marketStatsHtml(
-  trade,
-  performanceClass
-) {
+function marketStatsHtml(trade) {
   const unitLabel =
     displayUnitLabel(
       trade.economicUnitLabel,
@@ -2591,19 +2783,21 @@ function marketStatsHtml(
 
   const valueLabel =
     trade.marketAction === "buy"
-      ? "Estimated cost"
+      ? "Total purchase value"
       : trade.marketAction === "sell"
-      ? "Estimated proceeds"
-      : "Value";
+      ? "Total sale value"
+      : "Total value";
 
   return `
     <div class="stat"><span class="stat-label">${escapeHtml(unitLabel)}</span><span class="stat-value">${escapeHtml(formatWholeNumber(trade.shares))}</span></div>
     <div class="stat"><span class="stat-label">Weighted avg. price</span><span class="stat-value">${escapeHtml(formatPrice(trade.price))}</span></div>
-    <div class="stat"><span class="stat-label">${escapeHtml(valueLabel)}</span><span class="stat-value">${escapeHtml(formatCompactMoney(trade.value))}</span></div>
-    <div class="stat"><span class="stat-label">Since trade</span><span class="stat-value ${performanceClass}">${escapeHtml(formatPerformance(trade))}</span></div>`;
+    <div class="stat"><span class="stat-label">${escapeHtml(valueLabel)}</span><span class="stat-value">${escapeHtml(formatCompactMoney(trade.value))}</span></div>`;
 }
 
-function cardTemplate(trade) {
+function cardTemplate(
+  trade,
+  rankIndex
+) {
   const metaKey =
     isCompensationTrade(trade)
       ? "compensation"
@@ -2617,26 +2811,22 @@ function cardTemplate(trade) {
   const voted =
     state.voted.has(trade.id);
 
-  const performance =
-    getSinceTradePerformance(trade);
-
-  const performanceClass =
-    performance === null
-      ? ""
-      : performance > 0
-      ? "pos"
-      : performance < 0
-      ? "neg"
-      : "";
-
   const planBadge =
     trade.tenB51
-      ? '<span class="plan-badge plan">10b5-1 Plan</span>'
-      : "";
+      ? '<span class="plan-badge plan">Reported under a 10b5-1 plan</span>'
+      : '<span class="plan-badge">No 10b5-1 plan disclosed</span>';
 
   const newBadge =
     isNewTrade(trade)
       ? '<span class="new-badge">New</span>'
+      : "";
+
+  const rankingBadge =
+    [
+      "largest-buys",
+      "largest-sells",
+    ].includes(state.view)
+      ? `<span class="rank-badge">#${rankIndex + 1}</span>`
       : "";
 
   const ownershipBadges =
@@ -2648,15 +2838,12 @@ function cardTemplate(trade) {
       .join("");
 
   const badges =
-    `${newBadge}${planBadge}${ownershipBadges}`;
+    `${rankingBadge}${newBadge}${planBadge}${ownershipBadges}`;
 
   const statsHtml =
     isCompensationTrade(trade)
       ? compensationStatsHtml(trade)
-      : marketStatsHtml(
-          trade,
-          performanceClass
-        );
+      : marketStatsHtml(trade);
 
   return `
   <article class="trade-card" style="--tab-color:${meta.color}">
@@ -2700,7 +2887,10 @@ function cardTemplate(trade) {
 
       <div class="card-footer">
         <button class="decision-link" data-modal="${escapeHtml(trade.id)}" type="button">View Filing →</button>
-        <a class="form4-link" href="${escapeHtml(formFourLink(trade))}" target="_blank" rel="noopener noreferrer">FORM 4 LINK ↗</a>
+        <div class="card-footer-actions">
+          <button class="form4-link share-link" data-share="${escapeHtml(trade.id)}" type="button">Share</button>
+          <a class="form4-link" href="${escapeHtml(formFourLink(trade))}" target="_blank" rel="noopener noreferrer">FORM 4 LINK ↗</a>
+        </div>
       </div>
     </div>
   </article>`;
@@ -2727,32 +2917,6 @@ function planMeaning(trade) {
   return trade.tenB51
     ? "The filing identifies the transaction as occurring under a Rule 10b5-1 trading plan."
     : "The imported filing data did not identify a Rule 10b5-1 plan, and no further plan status is inferred.";
-}
-
-function performanceSentence(trade) {
-  if (isCompensationTrade(trade)) {
-    return "N/A — compensation events are excluded from market-performance rankings.";
-  }
-
-  const performance =
-    getSinceTradePerformance(trade);
-
-  if (performance === null) {
-    return NOT_AVAILABLE;
-  }
-
-  const direction =
-    performance > 0
-      ? "up"
-      : performance < 0
-      ? "down"
-      : "unchanged";
-
-  if (performance === 0) {
-    return `${trade.company}'s calculated market performance is unchanged since the trade date.`;
-  }
-
-  return `${trade.company}'s calculated market performance is ${direction} ${Math.abs(performance).toFixed(1)}% since the trade date.`;
 }
 
 function compensationTableFooterHtml(
@@ -2914,29 +3078,18 @@ function calculationNote(trade) {
     return `<p class="calculation-note">Some filing data could not be converted with confidence. Untrusted values are shown as N/A.</p>`;
   }
 
-  return `<p class="calculation-note">Displayed totals were calculated and rounded in code before summary generation.</p>`;
+  if (isMarketTrade(trade)) {
+    return `<p class="calculation-note">The total value was calculated in code by multiplying the shares in each retained transaction line by its reported price, then adding the line values together. The displayed price is the weighted average reported price.</p>`;
+  }
+
+  return `<p class="calculation-note">Displayed compensation totals were calculated and rounded in code before summary generation.</p>`;
 }
 
 function modalTemplate(trade) {
-  const performance =
-    getSinceTradePerformance(trade);
-
-  const performanceClass =
-    performance === null
-      ? ""
-      : performance > 0
-      ? "pos"
-      : performance < 0
-      ? "neg"
-      : "";
-
   const statsHtml =
     isCompensationTrade(trade)
       ? compensationStatsHtml(trade)
-      : marketStatsHtml(
-          trade,
-          performanceClass
-        );
+      : marketStatsHtml(trade);
 
   const meaningKey =
     isCompensationTrade(trade)
@@ -2981,10 +3134,6 @@ function modalTemplate(trade) {
         ${trade.ownershipEntities.length ? `<p style="margin-top:10px;">The filing identifies the transaction as made through ${escapeHtml(trade.ownershipEntities.join(" and "))}.</p>` : ""}
       </div>
 
-      <div class="modal-section">
-        <h4>Stock performance since trade</h4>
-        <p class="plain-sentence">${escapeHtml(performanceSentence(trade))}</p>
-      </div>
     </div>
 
     <div class="modal-disclaimer">Trade summaries are simplified for readability and are not investment advice. Review the full Form 4 filing for official details.</div>
@@ -2995,7 +3144,12 @@ function modalTemplate(trade) {
     </div>`;
 }
 
-function openModal(id) {
+function openModal(
+  id,
+  {
+    updateUrl = true,
+  } = {}
+) {
   const trade = TRADES.find(
     (item) => item.id === id
   );
@@ -3019,12 +3173,150 @@ function openModal(id) {
     "click",
     closeModal
   );
+
+  if (updateUrl) {
+    const url = new URL(
+      window.location.href
+    );
+
+    url.searchParams.set(
+      "trade",
+      trade.permanentSlug ||
+        trade.id
+    );
+
+    window.history.replaceState(
+      {},
+      "",
+      url
+    );
+  }
 }
 
 function closeModal() {
   document.getElementById(
     "modalOverlay"
   ).classList.remove("open");
+
+  const url = new URL(
+    window.location.href
+  );
+
+  url.searchParams.delete(
+    "trade"
+  );
+
+  window.history.replaceState(
+    {},
+    "",
+    url
+  );
+}
+
+let requestedTradeOpened = false;
+
+function openRequestedTrade() {
+  if (requestedTradeOpened) {
+    return;
+  }
+
+  const requested =
+    new URLSearchParams(
+      window.location.search
+    ).get("trade");
+
+  if (!requested) {
+    requestedTradeOpened = true;
+    return;
+  }
+
+  const trade = TRADES.find(
+    (item) =>
+      item.permanentSlug ===
+        requested ||
+      item.id === requested
+  );
+
+  if (!trade) {
+    return;
+  }
+
+  requestedTradeOpened = true;
+  openModal(
+    trade.id,
+    {
+      updateUrl: false,
+    }
+  );
+}
+
+async function shareTrade(
+  tradeId,
+  button
+) {
+  const trade = TRADES.find(
+    (item) => item.id === tradeId
+  );
+
+  if (!trade) {
+    return;
+  }
+
+  const url =
+    tradePermanentUrl(trade);
+
+  if (
+    navigator.share
+  ) {
+    try {
+      await navigator.share({
+        title: trade.title,
+        text:
+          `${trade.displayCeoName} — ${trade.company}`,
+        url,
+      });
+
+      return;
+    } catch (error) {
+      if (
+        error?.name ===
+          "AbortError"
+      ) {
+        return;
+      }
+    }
+  }
+
+  try {
+    await navigator.clipboard.writeText(
+      url
+    );
+
+    const originalText =
+      button.textContent;
+
+    button.textContent =
+      "Link copied";
+    button.classList.add(
+      "copied"
+    );
+
+    window.setTimeout(
+      () => {
+        button.textContent =
+          originalText;
+        button.classList.remove(
+          "copied"
+        );
+      },
+      1800
+    );
+  } catch (error) {
+    window.prompt(
+      "Copy this permanent link:",
+      url
+    );
+  }
 }
 
 async function saveVote(
@@ -3120,8 +3412,20 @@ function render() {
     .forEach((button) => {
       button.classList.toggle(
         "active",
-        button.dataset.sort ===
-          state.sort
+        button.dataset.view ===
+          state.view
+      );
+    });
+
+  document
+    .querySelectorAll(
+      "#sideNavigation [data-view]"
+    )
+    .forEach((button) => {
+      button.classList.toggle(
+        "active",
+        button.dataset.view ===
+          state.view
       );
     });
 
@@ -3255,6 +3559,23 @@ function render() {
           )
       );
     });
+
+  feed
+    .querySelectorAll(
+      "[data-share]"
+    )
+    .forEach((button) => {
+      button.addEventListener(
+        "click",
+        () =>
+          shareTrade(
+            button.dataset.share,
+            button
+          )
+      );
+    });
+
+  openRequestedTrade();
 }
 
 document.getElementById(
@@ -3284,39 +3605,48 @@ document.getElementById(
   "sortTabs"
 ).addEventListener(
   "click",
-  async (event) => {
+  (event) => {
     const button =
       event.target.closest(
-        "button[data-sort]"
+        "button[data-view]"
       );
 
     if (!button) {
       return;
     }
 
-    state.sort =
-      button.dataset.sort;
-
-    state.visibleCount =
-      DISPLAY_PAGE_SIZE;
+    setView(
+      button.dataset.view
+    );
 
     render();
   }
 );
 
 document.getElementById(
-  "showAllToggle"
+  "sideNavigation"
 ).addEventListener(
   "click",
-  async () => {
-    state.showAll =
-      !state.showAll;
+  (event) => {
+    const button =
+      event.target.closest(
+        "button[data-view]"
+      );
 
-    state.visibleCount =
-      DISPLAY_PAGE_SIZE;
+    if (!button) {
+      return;
+    }
 
-    updateShowAllButton();
+    setView(
+      button.dataset.view
+    );
+
     render();
+
+    window.scrollTo({
+      top: 0,
+      behavior: "smooth",
+    });
   }
 );
 
@@ -3508,8 +3838,8 @@ if (document.fonts?.ready) {
   );
 }
 
+initializeViewFromUrl();
 buildFilterRow();
-updateShowAllButton();
 setupScrollControls();
 loadTradesFromApi();
 
