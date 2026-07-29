@@ -2886,8 +2886,7 @@ function cardTemplate(
       <div class="tag-row">${trade.tags.map((tag) => `<span class="tag">#${escapeHtml(tag)}</span>`).join("")}</div>
 
       <div class="card-footer">
-        <button class="decision-link" data-modal="${escapeHtml(trade.id)}" type="button">View Filing →</button>
-        <div class="card-footer-actions">
+        <button class="decision-link" data-modal="${escapeHtml(trade.id)}" type="button">View Details</button>
           <button class="form4-link share-link" data-share="${escapeHtml(trade.id)}" type="button">Share</button>
           <a class="form4-link" href="${escapeHtml(formFourLink(trade))}" target="_blank" rel="noopener noreferrer">FORM 4 LINK ↗</a>
         </div>
