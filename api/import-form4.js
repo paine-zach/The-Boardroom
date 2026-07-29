@@ -224,15 +224,54 @@ export default async function handler(
         error?.message || ""
       ).includes("CRON_SECRET");
 
+    const rateLimited =
+      error?.code ===
+        "HERMAI_RATE_LIMITED" ||
+      Number(error?.status) === 429;
+
+    const retryAfterSeconds =
+      Number.isFinite(
+        Number(
+          error?.retryAfterSeconds
+        )
+      ) &&
+      Number(
+        error?.retryAfterSeconds
+      ) > 0
+        ? Math.ceil(
+            Number(
+              error.retryAfterSeconds
+            )
+          )
+        : 60;
+
+    if (rateLimited) {
+      res.setHeader(
+        "Retry-After",
+        String(retryAfterSeconds)
+      );
+    }
+
     return res
       .status(
-        missingSecret ? 500 : 500
+        rateLimited ? 429 : 500
       )
       .json({
         success: false,
-        error: missingSecret
+        code: rateLimited
+          ? "HERMAI_RATE_LIMITED"
+          : missingSecret
+          ? "IMPORTER_NOT_CONFIGURED"
+          : "FORM4_IMPORT_FAILED",
+        error: rateLimited
+          ? "HermAI rate limit reached. Retry later."
+          : missingSecret
           ? "Importer authentication is not configured."
           : "Form 4 import failed.",
+        retryAfterSeconds:
+          rateLimited
+            ? retryAfterSeconds
+            : undefined,
       });
   }
 }

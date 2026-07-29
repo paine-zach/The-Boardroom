@@ -13,9 +13,11 @@ param(
   [ValidateRange(0, 30)]
   [int]$MaxAi = 30,
   [ValidateRange(1, 10)]
-  [int]$MaxAttempts = 3,
+  [int]$MaxAttempts = 8,
   [ValidateRange(1, 300)]
-  [int]$RetryDelaySeconds = 15
+  [int]$RetryDelaySeconds = 60,
+  [ValidateRange(0, 300)]
+  [int]$BatchDelaySeconds = 10
 )
 
 Set-StrictMode -Version Latest
@@ -64,6 +66,77 @@ function Convert-ToInteger {
   }
 
   return $DefaultValue
+}
+
+function Get-HttpStatusCode {
+  param(
+    [object]$ErrorRecord
+  )
+
+  try {
+    return [int](
+      $ErrorRecord.Exception.Response.StatusCode
+    )
+  }
+  catch {
+    return 0
+  }
+}
+
+function Get-RateLimitRetrySeconds {
+  param(
+    [object]$ErrorRecord,
+    [int]$Attempt
+  )
+
+  $statusCode =
+    Get-HttpStatusCode $ErrorRecord
+
+  $message =
+    [string]$ErrorRecord.Exception.Message
+
+  $isRateLimited =
+    $statusCode -eq 429 -or
+    $message -match "429|RATE_LIMITED|HERMAI_RATE_LIMITED"
+
+  if (-not $isRateLimited) {
+    return 0
+  }
+
+  $retryAfterSeconds = 0
+
+  try {
+    $retryAfterHeader =
+      $ErrorRecord.Exception.Response.Headers[
+        "Retry-After"
+      ]
+
+    [void][int]::TryParse(
+      [string]$retryAfterHeader,
+      [ref]$retryAfterSeconds
+    )
+  }
+  catch {
+    $retryAfterSeconds = 0
+  }
+
+  $exponentialDelay =
+    [math]::Min(
+      900,
+      $RetryDelaySeconds *
+        [math]::Pow(
+          2,
+          [math]::Min(
+            $Attempt - 1,
+            4
+          )
+        )
+    )
+
+  return [int][math]::Max(
+    $retryAfterSeconds,
+    $exponentialDelay
+  )
 }
 
 if ($StartDate.Date -gt $EndDate.Date) {
@@ -207,12 +280,46 @@ try {
           $lastError = $_
 
           if ($attempt -lt $MaxAttempts) {
+            $rateLimitDelay =
+              Get-RateLimitRetrySeconds `
+                $_ `
+                $attempt
+
+            $waitSeconds =
+              if ($rateLimitDelay -gt 0) {
+                $rateLimitDelay
+              }
+              else {
+                [math]::Min(
+                  300,
+                  $RetryDelaySeconds *
+                    [math]::Pow(
+                      2,
+                      $attempt - 1
+                    )
+                )
+              }
+
+            $reason =
+              if ($rateLimitDelay -gt 0) {
+                "HermAI rate limit"
+              }
+              else {
+                "request failure"
+              }
+
             Write-Host (
-              "  Request failed; retrying in {0} seconds." -f
-                $RetryDelaySeconds
+              (
+                "  {0}; keeping offset {1} and " +
+                "retrying in {2} seconds."
+              ) -f
+                $reason,
+                $requestOffset,
+                [int]$waitSeconds
             ) -ForegroundColor Yellow
 
-            Start-Sleep -Seconds $RetryDelaySeconds
+            Start-Sleep `
+              -Seconds ([int]$waitSeconds)
           }
         }
       }
@@ -361,6 +468,19 @@ try {
       ) -ForegroundColor Green
 
       $currentOffset = $nextOffset
+
+      if (
+        $hasMore -and
+        $BatchDelaySeconds -gt 0
+      ) {
+        Write-Host (
+          "  Pacing next batch for {0} seconds." -f
+            $BatchDelaySeconds
+        ) -ForegroundColor DarkGray
+
+        Start-Sleep `
+          -Seconds $BatchDelaySeconds
+      }
     }
 
     Write-Host (
