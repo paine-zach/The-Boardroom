@@ -5,5 +5,10 @@
       "maxDuration": 300
     }
   },
-  "crons": []
+  "crons": [
+    {
+      "path": "/api/import-form4?role=ceo&limit=25&max_pages=8&max_ai=30&min_value=0&skip_zero_rows=true",
+      "schedule": "0 11 * * *"
+    }
+  ]
 }
