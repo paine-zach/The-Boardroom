@@ -610,6 +610,21 @@ function mapTradeRow(row) {
   const calculationTrusted =
     row.calculation_trusted === true;
 
+  const isMarketCard =
+    row.card_category ===
+      "market" ||
+    [
+      "buy",
+      "sell",
+    ].includes(
+      row.trade_type
+    );
+
+  const usableMarketPrice =
+    nullableNumber(
+      row.average_price
+    );
+
   const securityTotals =
     normalizeSecurityTotals(row);
 
@@ -744,7 +759,14 @@ function mapTradeRow(row) {
       ),
 
     value:
-      calculationTrusted
+      calculationTrusted &&
+      (
+        !isMarketCard ||
+        (
+          usableMarketPrice !== null &&
+          usableMarketPrice > 0
+        )
+      )
         ? nullableNumber(
             row.total_value
           )
@@ -1146,6 +1168,21 @@ export default async function handler(req, res) {
           OR t.market_action = ${marketAction}
         )
 
+        AND LOWER(
+          COALESCE(
+            t.officer_title,
+            ''
+          )
+        ) !~ (
+          '(^|[^a-z])regional([^a-z]|$)' ||
+          '|southern africa' ||
+          '|north america' ||
+          '|latin america' ||
+          '|asia pacific' ||
+          '|(^|[^a-z])emea([^a-z]|$)' ||
+          '|(^|[^a-z])apac([^a-z]|$)'
+        )
+
         AND (
           ${year} = 0
           OR EXTRACT(
@@ -1313,6 +1350,21 @@ export default async function handler(req, res) {
         AND (
           ${marketAction} = ''
           OR t.market_action = ${marketAction}
+        )
+
+        AND LOWER(
+          COALESCE(
+            t.officer_title,
+            ''
+          )
+        ) !~ (
+          '(^|[^a-z])regional([^a-z]|$)' ||
+          '|southern africa' ||
+          '|north america' ||
+          '|latin america' ||
+          '|asia pacific' ||
+          '|(^|[^a-z])emea([^a-z]|$)' ||
+          '|(^|[^a-z])apac([^a-z]|$)'
         )
 
         AND (

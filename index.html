@@ -584,15 +584,21 @@
     }
 
     .sort-tabs{
+      display:grid;
+      grid-template-columns:
+        repeat(2, minmax(0, 1fr));
       width:100%;
-      overflow-x:auto;
-      padding-bottom:3px;
-      scrollbar-width:thin;
+      overflow:visible;
     }
 
     .sort-tabs button{
-      flex:0 0 auto;
-      white-space:nowrap;
+      min-width:0;
+      white-space:normal;
+      line-height:1.3;
+    }
+
+    .explore-sidebar{
+      display:none;
     }
 
     .facet-row select{
@@ -744,7 +750,7 @@
   </div>
 
   <aside class="sidebar">
-    <div class="side-box">
+    <div class="side-box explore-sidebar">
       <h2>Explore</h2>
       <nav class="side-nav" id="sideNavigation" aria-label="Trade feeds">
         <span class="side-nav-label">Market activity</span>
@@ -2894,10 +2900,20 @@ function marketStatsHtml(trade) {
       ? "Total sale value"
       : "Total value";
 
+  const displayValue =
+    nullableNumber(
+      trade.price
+    ) === null ||
+    nullableNumber(
+      trade.price
+    ) <= 0
+      ? null
+      : trade.value;
+
   return `
     <div class="stat"><span class="stat-label">${escapeHtml(unitLabel)}</span><span class="stat-value">${escapeHtml(formatWholeNumber(trade.shares))}</span></div>
     <div class="stat"><span class="stat-label">Weighted avg. price</span><span class="stat-value">${escapeHtml(formatPrice(trade.price))}</span></div>
-    <div class="stat"><span class="stat-label">${escapeHtml(valueLabel)}</span><span class="stat-value">${escapeHtml(formatCompactMoney(trade.value))}</span></div>`;
+    <div class="stat"><span class="stat-label">${escapeHtml(valueLabel)}</span><span class="stat-value">${escapeHtml(formatCompactMoney(displayValue))}</span></div>`;
 }
 
 function cardTemplate(
@@ -2992,9 +3008,9 @@ function cardTemplate(
       <div class="tag-row">${trade.tags.map((tag) => `<span class="tag">#${escapeHtml(tag)}</span>`).join("")}</div>
 
       <div class="card-footer">
-        <button class="decision-link" data-modal="${escapeHtml(trade.id)}" type="button">View Filing →</button>
+        <button class="decision-link" data-modal="${escapeHtml(trade.id)}" type="button">View Details →</button>
         <div class="card-footer-actions">
-          <button class="form4-link share-link" data-share="${escapeHtml(trade.id)}" type="button">Share</button>
+          <button class="form4-link share-link" data-share="${escapeHtml(trade.id)}" type="button" aria-live="polite">Share</button>
           <a class="form4-link" href="${escapeHtml(formFourLink(trade))}" target="_blank" rel="noopener noreferrer">FORM 4 LINK ↗</a>
         </div>
       </div>
@@ -3141,12 +3157,22 @@ function transactionTableHtml(trade) {
     })
     .join("");
 
+  const displayValue =
+    nullableNumber(
+      trade.price
+    ) === null ||
+    nullableNumber(
+      trade.price
+    ) <= 0
+      ? null
+      : trade.value;
+
   const marketFooter = `
     <tr>
       <td colspan="3">Total</td>
       <td>${escapeHtml(formatWholeNumber(trade.shares))} ${escapeHtml(displayUnitLabel(trade.economicUnitLabel, trade.shares))}</td>
       <td><span class="txn-direction">Weighted avg.</span><br>${escapeHtml(formatPrice(trade.price))}</td>
-      <td>${escapeHtml(formatCompactMoney(trade.value))}</td>
+      <td>${escapeHtml(formatCompactMoney(displayValue))}</td>
     </tr>`;
 
   return `
@@ -3430,6 +3456,111 @@ async function shareTrade(
   }
 }
 
+async function copyTradeLink(
+  tradeId,
+  button
+) {
+  const trade = TRADES.find(
+    (item) => item.id === tradeId
+  );
+
+  if (!trade) {
+    return;
+  }
+
+  const url =
+    tradePermanentUrl(trade);
+
+  let copied = false;
+
+  if (
+    navigator.clipboard &&
+    window.isSecureContext
+  ) {
+    try {
+      await navigator.clipboard.writeText(
+        url
+      );
+
+      copied = true;
+    } catch {
+      copied = false;
+    }
+  }
+
+  if (!copied) {
+    const textArea =
+      document.createElement(
+        "textarea"
+      );
+
+    textArea.value = url;
+    textArea.setAttribute(
+      "readonly",
+      ""
+    );
+    textArea.setAttribute(
+      "aria-hidden",
+      "true"
+    );
+    textArea.style.position =
+      "fixed";
+    textArea.style.opacity = "0";
+    textArea.style.pointerEvents =
+      "none";
+
+    document.body.appendChild(
+      textArea
+    );
+
+    textArea.focus();
+    textArea.select();
+    textArea.setSelectionRange(
+      0,
+      textArea.value.length
+    );
+
+    try {
+      copied =
+        document.execCommand(
+          "copy"
+        );
+    } catch {
+      copied = false;
+    }
+
+    textArea.remove();
+  }
+
+  if (!copied) {
+    window.prompt(
+      "Copy this permanent link:",
+      url
+    );
+    return;
+  }
+
+  const originalText =
+    button.textContent;
+
+  button.textContent =
+    "Link copied";
+  button.classList.add(
+    "copied"
+  );
+
+  window.setTimeout(
+    () => {
+      button.textContent =
+        originalText;
+      button.classList.remove(
+        "copied"
+      );
+    },
+    2200
+  );
+}
+
 async function saveVote(
   tradeId,
   button
@@ -3667,7 +3798,7 @@ function render() {
       button.addEventListener(
         "click",
         () =>
-          shareTrade(
+          copyTradeLink(
             button.dataset.share,
             button
           )
