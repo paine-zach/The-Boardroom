@@ -562,7 +562,7 @@
     height:14px;
   }
 
-  @media (max-width: 620px){ /* Hide the Explore sidebar on mobile to reduce redundant nav */ .sidebar { display: none; }
+  @media (max-width: 620px) { .sidebar { display: flex; order: 1; width: 100%; } .feed-column { order: 2; } .layout { grid-template-columns: 1fr; gap: 16px; } }
     .header-inner{
       padding:14px 14px 16px;
     }
