@@ -584,15 +584,15 @@
     }
 
     .sort-tabs{
-      width:100%;
-      overflow-x:auto;
-      padding-bottom:3px;
-      scrollbar-width:thin;
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      overflow: visible;
+      width: 100%;
     }
 
     .sort-tabs button{
-      flex:0 0 auto;
-      white-space:nowrap;
+      min-width: 0;
+      white-space:normal;
     }
 
     .facet-row select{
