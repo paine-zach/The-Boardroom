@@ -1,47 +1,27 @@
 param(
-  [string]$BaseUrl =
-    "https://www.theboardroom.dev",
-
-  [datetime]$StartDate =
-    [datetime]"2026-01-28",
-
-  [datetime]$EndDate =
-    [datetime]"2026-07-28",
-
-  [ValidateRange(1, 100)]
+  [string]$BaseUrl = "https://www.theboardroom.dev",
+  [datetime]$StartDate = [datetime]"2026-01-28",
+  [datetime]$EndDate = [datetime]"2026-07-28",
+  [ValidateRange(1, 25)]
   [int]$Limit = 25,
-
-  [ValidateRange(0, 1000000)]
+  [ValidateRange(1, 8)]
+  [int]$PagesPerRequest = 8,
+  [ValidateRange(1, 31)]
+  [int]$WindowDays = 7,
+  [ValidateRange(0, 10000)]
   [int]$StartOffset = 0,
-
-  [ValidateRange(0, 100)]
+  [ValidateRange(0, 30)]
   [int]$MaxAi = 30,
-
   [ValidateRange(1, 10)]
-  [int]$MaxAttempts = 3,
-
+  [int]$MaxAttempts = 8,
   [ValidateRange(1, 300)]
-  [int]$RetryDelaySeconds = 15
+  [int]$RetryDelaySeconds = 60,
+  [ValidateRange(0, 300)]
+  [int]$BatchDelaySeconds = 10
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
-
-$importUrl =
-  "$BaseUrl/api/import-form4"
-
-$offset =
-  $StartOffset
-
-$pageNumber = 0
-$totalFilings = 0
-$totalInserted = 0
-$totalExisting = 0
-$totalFailed = 0
-$totalAiSummaries = 0
-$totalFallbackSummaries = 0
-
-$backfillSucceeded = $false
 
 function Get-OptionalValue {
   param(
@@ -54,10 +34,7 @@ function Get-OptionalValue {
     return $DefaultValue
   }
 
-  $property =
-    $Object.PSObject.Properties[
-      $PropertyName
-    ]
+  $property = $Object.PSObject.Properties[$PropertyName]
 
   if ($null -eq $property) {
     return $DefaultValue
@@ -90,474 +67,467 @@ function Convert-ToInteger {
   return $DefaultValue
 }
 
-try {
-  if ($StartDate -gt $EndDate) {
-    throw (
-      "StartDate must be earlier than or equal " +
-      "to EndDate."
+function Get-HttpStatusCode {
+  param([object]$ErrorRecord)
+
+  try {
+    return [int](
+      $ErrorRecord.Exception.Response.StatusCode
     )
   }
+  catch {
+    return 0
+  }
+}
 
-  $clipboardValue =
-    Get-Clipboard -Raw
+function Get-RateLimitRetrySeconds {
+  param(
+    [object]$ErrorRecord,
+    [int]$Attempt
+  )
 
-  if (
-    [string]::IsNullOrWhiteSpace(
-      $clipboardValue
-    )
-  ) {
-    throw (
-      "The clipboard is empty. Copy the " +
-      "production CRON_SECRET from Vercel " +
-      "before running this script."
-    )
+  $statusCode = Get-HttpStatusCode $ErrorRecord
+  $message = [string]$ErrorRecord.Exception.Message
+  $details = [string]$ErrorRecord.ErrorDetails.Message
+
+  $isRateLimited =
+    $statusCode -eq 429 -or
+    $message -match "429|RATE_LIMITED|HERMAI_RATE_LIMITED" -or
+    $details -match "429|RATE_LIMITED|HERMAI_RATE_LIMITED"
+
+  if (-not $isRateLimited) {
+    return 0
   }
 
-  $secret =
-    $clipboardValue.Trim() `
-      -replace "[`r`n]", ""
+  $retryAfterSeconds = 0
 
-  if (
-    [string]::IsNullOrWhiteSpace(
-      $secret
-    )
-  ) {
-    throw (
-      "The CRON_SECRET could not be read " +
-      "from the clipboard."
+  try {
+    $retryAfterHeader =
+      $ErrorRecord.Exception.Response.Headers["Retry-After"]
+
+    [void][int]::TryParse(
+      [string]$retryAfterHeader,
+      [ref]$retryAfterSeconds
     )
   }
+  catch {
+    $retryAfterSeconds = 0
+  }
 
-  $startDateText =
-    $StartDate.ToString("yyyy-MM-dd")
+  $exponentialDelay =
+    [math]::Min(
+      900,
+      $RetryDelaySeconds *
+        [math]::Pow(
+          2,
+          [math]::Min($Attempt - 1, 4)
+        )
+    )
 
-  $endDateText =
+  return [int][math]::Max(
+    $retryAfterSeconds,
+    $exponentialDelay
+  )
+}
+
+if ($StartDate.Date -gt $EndDate.Date) {
+  throw "StartDate must be earlier than or equal to EndDate."
+}
+
+$clipboardValue = Get-Clipboard -Raw
+
+if (
+  [string]::IsNullOrWhiteSpace(
+    [string]$clipboardValue
+  )
+) {
+  throw (
+    "Copy the production CRON_SECRET from Vercel " +
+    "before running this script."
+  )
+}
+
+$secret =
+  ([string]$clipboardValue).Trim() `
+    -replace "[`r`n]", ""
+
+$importUrl = "$BaseUrl/api/import-form4"
+$resultsPath =
+  Join-Path `
+    (Get-Location) `
+    "backfill-six-months-results.csv"
+
+$totalWindows = 0
+$totalBatches = 0
+$totalFilings = 0
+$totalGroupedTrades = 0
+$totalInserted = 0
+$totalExisting = 0
+$totalFailed = 0
+$totalAiSummaries = 0
+$totalFallbackSummaries = 0
+
+$currentWindowEnd = $EndDate.Date
+$currentWindowStart = $EndDate.Date
+$currentOffset = $StartOffset
+$firstWindow = $true
+
+Write-Host ""
+Write-Host (
+  "The Boardroom - Historical Form 4 Backfill"
+) -ForegroundColor Cyan
+
+Write-Host (
+  "Range: {0} through {1} (newest first)" -f
+    $StartDate.ToString("yyyy-MM-dd"),
     $EndDate.ToString("yyyy-MM-dd")
+)
 
-  Write-Host ""
-  Write-Host (
-    "The Boardroom — Six-Month Form 4 Backfill"
-  ) -ForegroundColor Cyan
+Write-Host (
+  "Normal mode: inserts new cards and leaves existing " +
+  "cards, summaries, and votes unchanged."
+) -ForegroundColor Yellow
 
-  Write-Host (
-    "Date range: {0} through {1}" -f
-      $startDateText,
-      $endDateText
-  )
+Write-Host (
+  "HermAI requests are paced and retain their offset " +
+  "when rate limited."
+) -ForegroundColor Yellow
 
-  Write-Host (
-    "Page size: $Limit"
-  )
+Write-Host ""
 
-  Write-Host (
-    "Starting offset: $offset"
-  )
+try {
+  while (
+    $currentWindowEnd -ge $StartDate.Date
+  ) {
+    $currentWindowStart =
+      $currentWindowEnd.AddDays(
+        -($WindowDays - 1)
+      )
 
-  Write-Host (
-    "Maximum AI summaries per page: $MaxAi"
-  )
+    if (
+      $currentWindowStart -lt $StartDate.Date
+    ) {
+      $currentWindowStart = $StartDate.Date
+    }
 
-  Write-Host ""
+    if (-not $firstWindow) {
+      $currentOffset = 0
+    }
 
-  while ($true) {
-    $pageNumber++
+    $totalWindows += 1
+
+    $windowStartText =
+      $currentWindowStart.ToString("yyyy-MM-dd")
+    $windowEndText =
+      $currentWindowEnd.ToString("yyyy-MM-dd")
 
     Write-Host (
-      "----------------------------------------"
-    )
-
-    Write-Host (
-      "Page $pageNumber — offset $offset"
+      "Window: {0} through {1}" -f
+        $windowStartText,
+        $windowEndText
     ) -ForegroundColor Cyan
 
-    $body = @{
-      role = "ceo"
+    $hasMore = $true
 
-      start_date =
-        $startDateText
+    while ($hasMore) {
+      $requestOffset = $currentOffset
 
-      end_date =
-        $endDateText
+      $body = @{
+        role = "ceo"
+        start_date = $windowStartText
+        end_date = $windowEndText
+        offset = $requestOffset
+        limit = $Limit
+        max_pages = $PagesPerRequest
+        max_ai = $MaxAi
+        min_value = 0
+        skip_zero_rows = $true
+      } | ConvertTo-Json
 
-      limit =
-        $Limit
+      $result = $null
+      $lastError = $null
 
-      offset =
-        $offset
-
-      # The PowerShell script controls pagination.
-      max_pages =
-        1
-
-      # Generate summaries only for new cards.
-      max_ai =
-        $MaxAi
-
-      # Store valid small transactions in Neon.
-      min_value =
-        0
-
-      skip_zero_rows =
-        $true
-    } | ConvertTo-Json
-
-    $result = $null
-    $requestSucceeded = $false
-
-    for (
-      $attempt = 1;
-      $attempt -le $MaxAttempts;
-      $attempt++
-    ) {
-      try {
-        Write-Host (
-          "Request attempt $attempt of " +
-          "$MaxAttempts..."
-        )
-
-        $result =
-          Invoke-RestMethod `
-            -Uri $importUrl `
-            -Method Post `
-            -Headers @{
-              Authorization =
-                "Bearer $secret"
-            } `
-            -ContentType `
-              "application/json" `
-            -Body $body `
-            -TimeoutSec 300
-
-        $requestSucceeded = $true
-        break
-      }
-      catch {
-        Write-Host (
-          "Attempt $attempt failed."
-        ) -ForegroundColor Yellow
-
-        if (
-          $_.ErrorDetails -and
-          $_.ErrorDetails.Message
-        ) {
+      for (
+        $attempt = 1;
+        $attempt -le $MaxAttempts;
+        $attempt += 1
+      ) {
+        try {
           Write-Host (
-            $_.ErrorDetails.Message
-          ) -ForegroundColor DarkYellow
-        }
-        else {
-          Write-Host (
-            $_.Exception.Message
-          ) -ForegroundColor DarkYellow
-        }
-
-        if ($attempt -lt $MaxAttempts) {
-          $delay =
-            $RetryDelaySeconds *
-            $attempt
-
-          Write-Host (
-            "Waiting $delay seconds before retry..."
+            "  Offset {0}, attempt {1}/{2}" -f
+              $requestOffset,
+              $attempt,
+              $MaxAttempts
           )
 
-          Start-Sleep `
-            -Seconds $delay
+          $result =
+            Invoke-RestMethod `
+              -Uri $importUrl `
+              -Method Post `
+              -Headers @{
+                Authorization = "Bearer $secret"
+              } `
+              -ContentType "application/json" `
+              -Body $body `
+              -TimeoutSec 300
+
+          $lastError = $null
+          break
         }
+        catch {
+          $lastError = $_
+
+          if ($attempt -lt $MaxAttempts) {
+            $rateLimitDelay =
+              Get-RateLimitRetrySeconds `
+                $_ `
+                $attempt
+
+            $waitSeconds =
+              if ($rateLimitDelay -gt 0) {
+                $rateLimitDelay
+              }
+              else {
+                [math]::Min(
+                  300,
+                  $RetryDelaySeconds *
+                    [math]::Pow(2, $attempt - 1)
+                )
+              }
+
+            $reason =
+              if ($rateLimitDelay -gt 0) {
+                "HermAI rate limit"
+              }
+              else {
+                "request failure"
+              }
+
+            Write-Host (
+              (
+                "  {0}; keeping offset {1} and " +
+                "retrying in {2} seconds."
+              ) -f
+                $reason,
+                $requestOffset,
+                [int]$waitSeconds
+            ) -ForegroundColor Yellow
+
+            Start-Sleep `
+              -Seconds ([int]$waitSeconds)
+          }
+        }
+      }
+
+      if ($null -ne $lastError) {
+        throw $lastError
+      }
+
+      $success =
+        Get-OptionalValue $result "success" $false
+
+      if ($success -ne $true) {
+        throw (
+          "The server returned success=false at " +
+          "offset $requestOffset."
+        )
+      }
+
+      $fetched = Get-OptionalValue $result "fetched"
+      $database = Get-OptionalValue $result "database"
+      $summaries = Get-OptionalValue $result "summaries"
+      $hermai = Get-OptionalValue $result "hermai"
+      $pagination =
+        Get-OptionalValue $hermai "pagination"
+
+      if ($null -eq $pagination) {
+        throw (
+          "Pagination metadata was missing at " +
+          "offset $requestOffset."
+        )
+      }
+
+      $filings =
+        Convert-ToInteger (
+          Get-OptionalValue $fetched "filings" 0
+        )
+      $groupedTrades =
+        Convert-ToInteger (
+          Get-OptionalValue $fetched "groupedTrades" 0
+        )
+      $inserted =
+        Convert-ToInteger (
+          Get-OptionalValue $database "inserted" 0
+        )
+      $alreadyExisting =
+        Convert-ToInteger (
+          Get-OptionalValue $database "alreadyExisting" 0
+        )
+      $failed =
+        Convert-ToInteger (
+          Get-OptionalValue $database "failed" 0
+        )
+      $aiSummaries =
+        Convert-ToInteger (
+          Get-OptionalValue $summaries "ai" 0
+        )
+      $fallbackSummaries =
+        Convert-ToInteger (
+          Get-OptionalValue $summaries "fallback" 0
+        )
+
+      if ($failed -ne 0) {
+        throw (
+          "Safety stop: importer reported " +
+          "$failed failed card(s)."
+        )
+      }
+
+      $hasMore =
+        [bool](
+          Get-OptionalValue $pagination "has_more" $false
+        )
+      $nextOffset =
+        Convert-ToInteger (
+          Get-OptionalValue `
+            $pagination `
+            "next_offset" `
+            (
+              $requestOffset +
+              ($Limit * $PagesPerRequest)
+            )
+        )
+
+      if (
+        $hasMore -and
+        $nextOffset -le $requestOffset
+      ) {
+        throw (
+          "Pagination did not advance beyond " +
+          "offset $requestOffset."
+        )
+      }
+
+      $totalBatches += 1
+      $totalFilings += $filings
+      $totalGroupedTrades += $groupedTrades
+      $totalInserted += $inserted
+      $totalExisting += $alreadyExisting
+      $totalAiSummaries += $aiSummaries
+      $totalFallbackSummaries += $fallbackSummaries
+
+      [pscustomobject]@{
+        WindowStart = $windowStartText
+        WindowEnd = $windowEndText
+        Offset = $requestOffset
+        NextOffset = $nextOffset
+        HasMore = $hasMore
+        Filings = $filings
+        GroupedTrades = $groupedTrades
+        Inserted = $inserted
+        AlreadyExisting = $alreadyExisting
+        Failed = $failed
+        AiSummaries = $aiSummaries
+        FallbackSummaries = $fallbackSummaries
+        CompletedAt = (Get-Date).ToString("o")
+      } |
+        Export-Csv `
+          -LiteralPath $resultsPath `
+          -NoTypeInformation `
+          -Append
+
+      Write-Host (
+        (
+          "  Inserted {0}; already existing {1}; " +
+          "AI summaries {2}; fallback summaries {3}."
+        ) -f
+          $inserted,
+          $alreadyExisting,
+          $aiSummaries,
+          $fallbackSummaries
+      ) -ForegroundColor Green
+
+      $currentOffset = $nextOffset
+
+      if (
+        $hasMore -and
+        $BatchDelaySeconds -gt 0
+      ) {
+        Write-Host (
+          "  Pacing next batch for {0} seconds." -f
+            $BatchDelaySeconds
+        ) -ForegroundColor DarkGray
+
+        Start-Sleep `
+          -Seconds $BatchDelaySeconds
       }
     }
 
-    if (-not $requestSucceeded) {
-      throw (
-        "The import failed after $MaxAttempts " +
-        "attempts at offset $offset."
-      )
-    }
-
-    $success =
-      Get-OptionalValue `
-        -Object $result `
-        -PropertyName "success" `
-        -DefaultValue $false
-
-    if ($success -ne $true) {
-      $serverError =
-        Get-OptionalValue `
-          -Object $result `
-          -PropertyName "error" `
-          -DefaultValue `
-            "The server returned success=false."
-
-      throw (
-        "Import failed at offset ${offset}: " +
-        "$serverError"
-      )
-    }
-
-    $fetched =
-      Get-OptionalValue `
-        -Object $result `
-        -PropertyName "fetched"
-
-    $database =
-      Get-OptionalValue `
-        -Object $result `
-        -PropertyName "database"
-
-    $summaries =
-      Get-OptionalValue `
-        -Object $result `
-        -PropertyName "summaries"
-
-    $hermai =
-      Get-OptionalValue `
-        -Object $result `
-        -PropertyName "hermai"
-
-    $pagination =
-      Get-OptionalValue `
-        -Object $hermai `
-        -PropertyName "pagination"
-
-    if ($null -eq $pagination) {
-      throw (
-        "Pagination metadata was missing at " +
-        "offset $offset."
-      )
-    }
-
-    $pageFilings =
-      Convert-ToInteger (
-        Get-OptionalValue `
-          -Object $fetched `
-          -PropertyName "filings" `
-          -DefaultValue 0
-      )
-
-    $pageInserted =
-      Convert-ToInteger (
-        Get-OptionalValue `
-          -Object $database `
-          -PropertyName "inserted" `
-          -DefaultValue 0
-      )
-
-    $pageExisting =
-      Convert-ToInteger (
-        Get-OptionalValue `
-          -Object $database `
-          -PropertyName "alreadyExisting" `
-          -DefaultValue 0
-      )
-
-    $pageFailed =
-      Convert-ToInteger (
-        Get-OptionalValue `
-          -Object $database `
-          -PropertyName "failed" `
-          -DefaultValue 0
-      )
-
-    $pageAi =
-      Convert-ToInteger (
-        Get-OptionalValue `
-          -Object $summaries `
-          -PropertyName "ai" `
-          -DefaultValue 0
-      )
-
-    $pageFallback =
-      Convert-ToInteger (
-        Get-OptionalValue `
-          -Object $summaries `
-          -PropertyName "fallback" `
-          -DefaultValue 0
-      )
-
-    $totalFilings +=
-      $pageFilings
-
-    $totalInserted +=
-      $pageInserted
-
-    $totalExisting +=
-      $pageExisting
-
-    $totalFailed +=
-      $pageFailed
-
-    $totalAiSummaries +=
-      $pageAi
-
-    $totalFallbackSummaries +=
-      $pageFallback
-
     Write-Host (
-      "Filings returned: $pageFilings"
-    )
-
-    Write-Host (
-      "Cards inserted: $pageInserted"
+      "Completed window: {0} through {1}" -f
+        $windowStartText,
+        $windowEndText
     ) -ForegroundColor Green
 
-    Write-Host (
-      "Cards already existing: $pageExisting"
-    )
+    Write-Host ""
 
-    Write-Host (
-      "Database failures: $pageFailed"
-    )
-
-    Write-Host (
-      "AI summaries: $pageAi"
-    )
-
-    Write-Host (
-      "Fallback summaries: $pageFallback"
-    )
-
-    if ($pageFailed -gt 0) {
-      throw (
-        "The importer reported $pageFailed " +
-        "database failure(s) at offset $offset."
-      )
-    }
-
-    $hasMoreRaw =
-      Get-OptionalValue `
-        -Object $pagination `
-        -PropertyName "has_more" `
-        -DefaultValue $false
-
-    $hasMore =
-      [System.Convert]::ToBoolean(
-        $hasMoreRaw
-      )
-
-    $nextOffsetRaw =
-      Get-OptionalValue `
-        -Object $pagination `
-        -PropertyName "next_offset"
-
-    if (-not $hasMore) {
-      Write-Host ""
-      Write-Host (
-        "HermAI returned has_more=false."
-      ) -ForegroundColor Green
-
-      Write-Host (
-        "All available pages were processed."
-      ) -ForegroundColor Green
-
-      $backfillSucceeded = $true
-      break
-    }
-
-    if ($null -eq $nextOffsetRaw) {
-      throw (
-        "HermAI returned has_more=true but " +
-        "did not return next_offset."
-      )
-    }
-
-    $nextOffset =
-      Convert-ToInteger `
-        -Value $nextOffsetRaw `
-        -DefaultValue -1
-
-    if ($nextOffset -le $offset) {
-      throw (
-        "Pagination did not advance. " +
-        "Current offset: $offset. " +
-        "Next offset: $nextOffset."
-      )
-    }
-
-    Write-Host (
-      "Next offset: $nextOffset"
-    )
-
-    $offset =
-      $nextOffset
+    $currentWindowEnd =
+      $currentWindowStart.AddDays(-1)
+    $firstWindow = $false
+    $currentOffset = 0
   }
+
+  Write-Host (
+    "HISTORICAL BACKFILL COMPLETED SUCCESSFULLY"
+  ) -ForegroundColor Green
+
+  Write-Host "Windows: $totalWindows"
+  Write-Host "Batches: $totalBatches"
+  Write-Host "Filings scanned: $totalFilings"
+  Write-Host "Grouped trades: $totalGroupedTrades"
+  Write-Host "Cards inserted: $totalInserted"
+  Write-Host "Cards already existing: $totalExisting"
+  Write-Host "Database failures: $totalFailed"
+  Write-Host "AI summaries: $totalAiSummaries"
+  Write-Host "Fallback summaries: $totalFallbackSummaries"
+  Write-Host "Results: $resultsPath"
 }
 catch {
   Write-Host ""
   Write-Host (
-    "BACKFILL STOPPED"
+    "HISTORICAL BACKFILL STOPPED"
   ) -ForegroundColor Red
 
   Write-Host (
-    $_.Exception.Message
+    "Window: {0} through {1}" -f
+      $currentWindowStart.ToString("yyyy-MM-dd"),
+      $currentWindowEnd.ToString("yyyy-MM-dd")
+  )
+
+  Write-Host "Resume offset: $currentOffset"
+  Write-Host (
+    "Reason: {0}" -f $_.Exception.Message
   ) -ForegroundColor Red
 
   Write-Host ""
+  Write-Host "Resume with:"
   Write-Host (
-    "Resume from offset $offset after " +
-    "correcting the problem:"
-  ) -ForegroundColor Yellow
+    (
+      ".\scripts\backfill-six-months.ps1 " +
+      '-StartDate "{0}" -EndDate "{1}" -StartOffset {2}'
+    ) -f
+      $StartDate.ToString("yyyy-MM-dd"),
+      $currentWindowEnd.ToString("yyyy-MM-dd"),
+      $currentOffset
+  )
 
-  Write-Host (
-    ".\scripts\backfill-six-months.ps1 " +
-    "-StartOffset $offset"
-  ) -ForegroundColor Yellow
-
-  exit 1
+  throw
 }
 finally {
   Remove-Variable secret `
     -ErrorAction SilentlyContinue
-
   Remove-Variable clipboardValue `
     -ErrorAction SilentlyContinue
 
   Set-Clipboard -Value " "
-}
-
-if ($backfillSucceeded) {
-  Write-Host ""
-  Write-Host (
-    "========================================"
-  )
-
-  Write-Host (
-    "BACKFILL COMPLETED SUCCESSFULLY"
-  ) -ForegroundColor Green
-
-  Write-Host (
-    "========================================"
-  )
-
-  Write-Host (
-    "Pages processed: $pageNumber"
-  )
-
-  Write-Host (
-    "Filings returned: $totalFilings"
-  )
-
-  Write-Host (
-    "Cards inserted: $totalInserted"
-  )
-
-  Write-Host (
-    "Cards already existing: $totalExisting"
-  )
-
-  Write-Host (
-    "Database failures: $totalFailed"
-  )
-
-  Write-Host (
-    "AI summaries: $totalAiSummaries"
-  )
-
-  Write-Host (
-    "Fallback summaries: " +
-    "$totalFallbackSummaries"
-  )
-
-  Write-Host (
-    "Final offset: $offset"
-  )
-
-  Write-Host ""
 }
