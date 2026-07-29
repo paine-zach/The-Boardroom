@@ -1778,9 +1778,25 @@ async function loadTradesFromApi() {
   let latestCoverage = null;
 
   try {
-    while (hasMore) {
-      const params =
-        new URLSearchParams({
+     while (hasMore) {
+       // For the "Most Recent" homepage view, ask the server for the
+       // server-filtered latest view so the feed reflects current filings
+       // in the database. For other views keep the previous behavior of
+       // requesting the full dataset so client-side facets continue to work.
+       const apiView = state.view === "latest" ? "latest" : "all";
+       const apiShowAll = state.view === "latest" ? "false" : "true";
+        const params =
+             new URLSearchParams({
+                    voter_id: VOTER_ID,
+                    limit: String(API_PAGE_SIZE),
+                    offset: String(offset),
+                    show_all: apiShowAll,
+                    view: apiView,
+                    sort: state.sort || "latest",
+                  });
+ while (hasMore) {
+   const params =
+     new URLSearchParams({
           voter_id: VOTER_ID,
           limit: String(API_PAGE_SIZE),
           offset: String(offset),
