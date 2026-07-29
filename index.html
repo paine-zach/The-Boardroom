@@ -2788,11 +2788,13 @@ function marketStatsHtml(trade) {
       ? "Total sale value"
       : "Total value";
 
-  return `
-    <div class="stat"><span class="stat-label">${escapeHtml(unitLabel)}</span><span class="stat-value">${escapeHtml(formatWholeNumber(trade.shares))}</span></div>
-    <div class="stat"><span class="stat-label">Weighted avg. price</span><span class="stat-value">${escapeHtml(formatPrice(trade.price))}</span></div>
-    <div class="stat"><span class="stat-label">${escapeHtml(valueLabel)}</span><span class="stat-value">${escapeHtml(formatCompactMoney(trade.value))}</span></div>`;
-}
+  // If the reported price is missing, surface N/A for the total value const totalValueDisplay = trade.price == null ? NOT_AVAILABLE : formatCompactMoney(trade.value);
+
+return      
+  <div class="stat"><span class="stat-label">${escapeHtml(unitLabel)}</span><span class="stat-value">${escapeHtml(formatWholeNumber(trade.shares))}</span></div>     
+    <div class="stat"><span class="stat-label">Weighted avg. price</span><span class="stat-value">${escapeHtml(formatPrice(trade.price))}</span></div>     
+    <div class="stat"><span class="stat-label">${escapeHtml(valueLabel)}</span><span class="stat-value">${escapeHtml(totalValueDisplay)}</span></div>;
+    }
 
 function cardTemplate(
   trade,
