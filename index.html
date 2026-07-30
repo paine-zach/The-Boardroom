@@ -4,6 +4,16 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>The Boardroom — CEO Stock Trades, Made Readable</title>
+<meta name="description" content="Track recent open-market stock purchases and sales disclosed by public-company CEOs in SEC Form 4 filings.">
+<link rel="canonical" href="https://theboardroom.dev/">
+<meta property="og:title" content="The Boardroom — CEO Stock Trades, Made Readable">
+<meta property="og:description" content="Track recent open-market stock purchases and sales disclosed by public-company CEOs in SEC Form 4 filings.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://theboardroom.dev/">
+<meta property="og:site_name" content="The Boardroom">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="The Boardroom — CEO Stock Trades, Made Readable">
+<meta name="twitter:description" content="Track recent open-market stock purchases and sales disclosed by public-company CEOs in SEC Form 4 filings.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
@@ -199,6 +209,9 @@
   .share-link.copied{ color:var(--accent-ink); border-color:var(--accent); }
 
   .no-results{ text-align:center; padding:60px 20px; color:var(--ink-soft); font-family:'IBM Plex Mono', monospace; font-size:13px; border:1px dashed var(--line); border-radius:var(--radius); background:var(--card); }
+  .retry-button{ display:block; margin:16px auto 0; padding:9px 16px; border:1px solid var(--navy); border-radius:var(--radius); background:var(--navy); color:#fff; font:600 12px 'IBM Plex Sans',sans-serif; cursor:pointer; }
+  .retry-button:hover{ background:var(--navy-deep); }
+  .retry-button:focus-visible{ outline:3px solid var(--accent); outline-offset:3px; }
 
   .sidebar{ display:flex; flex-direction:column; gap:14px; }
   .side-box{ background:var(--card); border:1px solid var(--line); border-radius:var(--radius); padding:16px 18px; }
@@ -796,7 +809,7 @@
         <dt>M — Option exercise</dt>
         <dd>Previously granted options were exercised. Options and common shares remain separate in the displayed totals.</dd>
         <dt>10b5-1 plan</dt>
-        <dd>A pre-scheduled trading plan set up in advance, often used to avoid timing questions.</dd>
+        <dd>A trading arrangement adopted in advance. A transaction reported under one should not, by itself, be interpreted as the executive's current outlook on the company.</dd>
       </dl>
     </div>
   </aside>
@@ -891,6 +904,7 @@ let state = {
   plan: "",
   valueBand: "",
   loading: false,
+  loadError: null,
   allLoaded: false,
   hasMore: false,
   nextOffset: 0,
@@ -1802,6 +1816,7 @@ async function loadTradesFromApi({
 
   state.requestId = requestId;
   state.loading = true;
+  state.loadError = null;
 
   const offset =
     append
@@ -2092,17 +2107,9 @@ async function loadTradesFromApi({
       error
     );
 
-    if (
-      requestId === state.requestId &&
-      !TRADES.length
-    ) {
-      const feed =
-        document.getElementById(
-          "feed"
-        );
-
-      feed.innerHTML =
-        '<div class="no-results">Could not load live Form 4 data from /api/form4 yet.</div>';
+    if (requestId === state.requestId) {
+      state.loadError =
+        "We could not load the latest Form 4 trades.";
     }
 
     const status =
@@ -2115,7 +2122,7 @@ async function loadTradesFromApi({
       status
     ) {
       status.textContent =
-        "Some trades could not be loaded. The site will retry automatically.";
+        "Some trades could not be loaded. Please try again.";
     }
   } finally {
     if (
@@ -3037,7 +3044,7 @@ const MEANING_BY_TYPE = {
 
 function planMeaning(trade) {
   return trade.tenB51
-    ? "The filing identifies the transaction as occurring under a Rule 10b5-1 trading plan."
+    ? "The filing identifies the transaction as occurring under a Rule 10b5-1 trading plan adopted in advance. The transaction should not, by itself, be interpreted as the executive's current outlook on the company."
     : "The imported filing data did not identify a Rule 10b5-1 plan, and no further plan status is inferred.";
 }
 
@@ -3751,7 +3758,21 @@ function render() {
     feed.innerHTML =
       state.loading
         ? '<div class="no-results">Loading trades…</div>'
+        : state.loadError
+        ? `<div class="no-results">${escapeHtml(state.loadError)}<button class="retry-button" id="retryFeedButton" type="button">Retry</button></div>`
         : '<div class="no-results">No trades match your search or filters. Try clearing the active filters.</div>';
+
+    const retryButton =
+      document.getElementById(
+        "retryFeedButton"
+      );
+
+    if (retryButton) {
+      retryButton.addEventListener(
+        "click",
+        () => loadTradesFromApi()
+      );
+    }
 
     return;
   }
