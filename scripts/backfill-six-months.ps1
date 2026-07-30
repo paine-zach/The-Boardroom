@@ -86,9 +86,34 @@ function Get-RateLimitRetrySeconds {
     [int]$Attempt
   )
 
-  $statusCode = Get-HttpStatusCode $ErrorRecord
-  $message = [string]$ErrorRecord.Exception.Message
-  $details = [string]$ErrorRecord.ErrorDetails.Message
+    $statusCode =
+    Get-HttpStatusCode $ErrorRecord
+
+  $exception =
+    Get-OptionalValue `
+      $ErrorRecord `
+      "Exception"
+
+  $message =
+    [string](
+      Get-OptionalValue `
+        $exception `
+        "Message" `
+        ""
+    )
+
+  $errorDetails =
+    Get-OptionalValue `
+      $ErrorRecord `
+      "ErrorDetails"
+
+  $details =
+    [string](
+      Get-OptionalValue `
+        $errorDetails `
+        "Message" `
+        ""
+    )
 
   $isRateLimited =
     $statusCode -eq 429 -or
